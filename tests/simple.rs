@@ -18,7 +18,7 @@ fn wake_post() {
     assert!(p.is_pending());
     t.pulse();
     assert!(!p.is_pending());
-    p.wait();
+    p.wait().unwrap();
 }
 
 #[test]
@@ -30,6 +30,27 @@ fn wake_thread_spawn() {
         t.pulse();
     });
     assert!(p.is_pending());
-    p.wait();
+    p.wait().unwrap();
     assert!(!p.is_pending());
+}
+
+
+#[test]
+#[should_panic]
+fn dropped() {
+    let (p, t) = Pulse::new();
+    drop(t);
+    p.wait().unwrap();
+}
+
+
+#[test]
+#[should_panic]
+fn dropped_thread() {
+    let (p, t) = Pulse::new();
+    thread::spawn(|| {
+        thread::sleep_ms(10);
+        drop(t);
+    });
+    p.wait().unwrap();
 }

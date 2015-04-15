@@ -46,6 +46,12 @@ impl Waiting {
 
 pub struct Trigger(Arc<Inner>);
 
+impl Drop for Trigger {
+    fn drop(&mut self) {
+        self.set(State::Dropped)
+    }
+}
+
 impl Trigger {
     fn set(&self, state: State) {
         let old = self.0.state.compare_and_swap(
@@ -109,10 +115,14 @@ impl Pulse {
     /// Wait for an pulse to be triggered
     ///
     /// Panics if something else is waiting on this already
-    pub fn wait(&self) {
+    pub fn wait(&self) -> Result<(), WaitError> {
         loop {
             if !self.is_pending() {
-                return;
+                return match self.state() {
+                    State::Pulsed => Ok(()),
+                    State::Dropped => Err(WaitError(State::Dropped)),
+                    State::Pending => panic!("should not have been pending")
+                };
             }
 
             self.arm(Box::new(Waiting::thread()));
@@ -127,3 +137,6 @@ impl Pulse {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct WaitError(State);
