@@ -162,6 +162,18 @@ impl Pulse {
     pub fn id(&self) -> usize {
         unsafe { mem::transmute_copy(&self.0) }
     }
+
+    pub fn recycle(&self) -> Trigger {
+        let state = self.0.state.load(Ordering::Relaxed);
+        if state == State::Pending as isize {
+            panic!("Attempted to recycle pending Pulse")
+        }
+        self.0.state.store(0, Ordering::Relaxed);
+        Trigger {
+            pulsed: false,
+            inner: self.0.clone()
+        }
+    }
 }
 
 #[derive(Debug)]

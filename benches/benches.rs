@@ -4,6 +4,7 @@ extern crate test;
 extern crate pulse;
 
 use std::sync::mpsc::channel;
+use std::sync::Mutex;
 use test::Bencher;
 use pulse::*;
 
@@ -18,11 +19,31 @@ fn pulse_already_set(b: &mut Bencher) {
 }
 
 #[bench]
-fn pulse_set(b: &mut Bencher) {
+fn pulse_create_and_set(b: &mut Bencher) {
     b.iter(|| {
         let (p, t) = Pulse::new();
         t.pulse();
         p.wait().unwrap();
+    });
+}
+
+#[bench]
+fn pulse_set(b: &mut Bencher) {
+    let (p, _) = Pulse::new();
+
+    b.iter(|| {
+        let t = p.recycle();
+        t.pulse();
+        p.wait().unwrap();
+    });
+}
+
+#[bench]
+fn mutex_lock_time(b: &mut Bencher) {
+    let mutex = Mutex::new(7);
+    b.iter(|| {
+        let guard = mutex.lock().unwrap();
+        
     });
 }
 

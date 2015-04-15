@@ -52,3 +52,23 @@ fn dropped_thread() {
     });
     p.wait().unwrap();
 }
+
+#[test]
+fn recycle() {
+    let (p, t) = Pulse::new();
+    assert!(p.is_pending());
+    t.pulse();
+    assert!(!p.is_pending());
+    let t = p.recycle();
+    assert!(p.is_pending());
+    t.pulse();
+    assert!(!p.is_pending());
+}
+
+#[test]
+#[should_panic]
+fn recycle_panic() {
+    let (p, t) = Pulse::new();
+    let _ = p.recycle();
+    drop(t);
+}
