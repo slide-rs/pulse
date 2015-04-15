@@ -1,8 +1,5 @@
-
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use std::thread;
-use atom::{GetNextMut, Atom};
 use {Pulse, Trigger, Waiting};
 
 struct Inner {
@@ -46,6 +43,17 @@ impl Select {
                 x
             })
     }
+
+    pub fn wait(&mut self) -> Pulse {
+        let (pulse, t) = Pulse::new();
+        let mut guard = self.inner.lock().unwrap();
+        if guard.ready.len() == 0 {
+            guard.trigger = Some(t);
+        } else {
+            t.pulse();
+        }
+        pulse
+    }
 }
 
 impl Iterator for Select {
@@ -62,7 +70,7 @@ impl Iterator for Select {
                 guard.trigger = Some(t);
                 pulse
             };
-            pulse.wait();
+            pulse.wait().unwrap();
         }
     }
 }

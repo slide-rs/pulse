@@ -3,7 +3,7 @@
 extern crate test;
 extern crate pulse;
 
-use std::sync::mpsc::*;
+use std::sync::mpsc::channel;
 use test::Bencher;
 use pulse::*;
 

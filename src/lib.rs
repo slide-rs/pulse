@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread;
 use std::mem;
-use atom::{Atom, GetNextMut};
+use atom::Atom;
 
 pub use select::Select;
 mod select;
