@@ -44,33 +44,35 @@ impl Waiting {
     }
 }
 
-pub struct Trigger(Arc<Inner>);
+pub struct Trigger {
+    pulsed: bool,
+    inner: Arc<Inner>
+}
 
 impl Drop for Trigger {
     fn drop(&mut self) {
-        self.set(State::Dropped)
+        if !self.pulsed {
+            self.set(State::Dropped)
+        }
     }
 }
 
 impl Trigger {
     fn set(&self, state: State) {
-        let old = self.0.state.compare_and_swap(
-            State::Pending as isize,
-            state as isize,
-            Ordering::Relaxed
-        );
+        self.inner.state.store(state as isize, Ordering::Relaxed);
 
-        if old == State::Pending as isize {
-            match self.0.waiting.take(Ordering::Acquire) {
-                None => (),
-                Some(v) => v.trigger()
-            }
+        match self.inner.waiting.take(Ordering::Acquire) {
+            None => (),
+            Some(v) => v.trigger()
         }
     }
 
     /// Trigger an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
-    pub fn pulse(self) { self.set(State::Pulsed) }
+    pub fn pulse(mut self) {
+        self.set(State::Pulsed);
+        self.pulsed = true;
+    }
 }
 
 pub struct Pulse(Arc<Inner>);
@@ -82,7 +84,11 @@ impl Pulse {
             waiting: Atom::empty()
         });
 
-        (Pulse(inner.clone()), Trigger(inner.clone()))
+        (Pulse(inner.clone()),
+         Trigger {
+            inner: inner,
+            pulsed: false
+        })
     }
 
     // Read out the state of the Pulse

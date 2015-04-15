@@ -34,7 +34,6 @@ fn wake_thread_spawn() {
     assert!(!p.is_pending());
 }
 
-
 #[test]
 #[should_panic]
 fn dropped() {
@@ -42,7 +41,6 @@ fn dropped() {
     drop(t);
     p.wait().unwrap();
 }
-
 
 #[test]
 #[should_panic]
