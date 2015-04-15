@@ -3,7 +3,12 @@ extern crate atom;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread;
-use atom::Atom;
+use std::mem;
+use atom::{Atom, GetNextMut};
+
+pub use select::Select;
+mod select;
+
 
 struct Inner {
     state: AtomicIsize,
@@ -29,13 +34,22 @@ impl State {
 }
 
 pub enum Waiting {
-    Thread(thread::Thread)
+    Thread(thread::Thread),
+    Select(select::Handle)
 }
 
 impl Waiting {
-    fn trigger(self) {
-        match self {
-            Waiting::Thread(thread) => thread.unpark()
+    fn trigger(s: Box<Self>, id: usize) {
+        match *s {
+            Waiting::Thread(thread) => thread.unpark(),
+            Waiting::Select(select) => {
+                let trigger = {
+                    let mut guard = select.0.lock().unwrap();
+                    guard.ready.push(id);
+                    guard.trigger.take()
+                };
+                trigger.map(|x| x.pulse());
+            }
         }        
     }
 
@@ -61,9 +75,11 @@ impl Trigger {
     fn set(&self, state: State) {
         self.inner.state.store(state as isize, Ordering::Relaxed);
 
+        let id = unsafe { mem::transmute_copy(&self.inner) };
+
         match self.inner.waiting.take(Ordering::Acquire) {
             None => (),
-            Some(v) => v.trigger()
+            Some(v) => Waiting::trigger(v, id)
         }
     }
 
@@ -141,6 +157,10 @@ impl Pulse {
                 thread::park();
             }
         }
+    }
+
+    pub fn id(&self) -> usize {
+        unsafe { mem::transmute_copy(&self.0) }
     }
 }
 
