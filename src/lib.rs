@@ -11,17 +11,17 @@ struct Inner {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum State {
-    Idle = 0is,
-    Triggered = 1is,
+pub enum State {
+    Pending = 0is,
+    Pulsed = 1is,
     Dropped = 2is
 }
 
 impl State {
     fn from_isize(v: isize) -> State {
         match v {
-            0 => State::Idle,
-            1 => State::Triggered,
+            0 => State::Pending,
+            1 => State::Pulsed,
             2 => State::Dropped,
             v => panic!("read invalid State {}", v)
         }
@@ -49,12 +49,12 @@ pub struct Trigger(Arc<Inner>);
 impl Trigger {
     fn set(&self, state: State) {
         let old = self.0.state.compare_and_swap(
-            State::Idle as isize,
+            State::Pending as isize,
             state as isize,
             Ordering::Relaxed
         );
 
-        if old == State::Idle as isize {
+        if old == State::Pending as isize {
             match self.0.waiting.take(Ordering::Acquire) {
                 None => (),
                 Some(v) => v.trigger()
@@ -64,7 +64,7 @@ impl Trigger {
 
     /// Trigger an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
-    pub fn trigger(self) { self.set(State::Triggered) }
+    pub fn pulse(self) { self.set(State::Pulsed) }
 }
 
 pub struct Pulse(Arc<Inner>);
@@ -79,12 +79,14 @@ impl Pulse {
         (Pulse(inner.clone()), Trigger(inner.clone()))
     }
 
-    // Check if the signal has been triggered or not
-    pub fn triggered(&self) -> bool {
-        match State::from_isize(self.0.state.load(Ordering::Relaxed)) {
-            State::Triggered | State::Dropped => true,
-            _ => false
-        }
+    // Read out the state of the Pulse
+    pub fn state(&self) -> State {
+        State::from_isize(self.0.state.load(Ordering::Relaxed))
+    }
+
+    // Check to see if the pulse is pending or not
+    pub fn is_pending(&self) -> bool {
+        self.state() == State::Pending
     }
 
     /// Arm a pulse to wake 
@@ -109,13 +111,13 @@ impl Pulse {
     /// Panics if something else is waiting on this already
     pub fn wait(&self) {
         loop {
-            if self.triggered() {
+            if !self.is_pending() {
                 return;
             }
 
             self.arm(Box::new(Waiting::thread()));
 
-            if self.triggered() {
+            if !self.is_pending() {
                 // cleanup the state. since we set it
                 self.disarm();
             } else {
