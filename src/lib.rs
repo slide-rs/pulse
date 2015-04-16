@@ -1,7 +1,7 @@
 extern crate atom;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::mem;
 use atom::Atom;
@@ -9,29 +9,18 @@ use atom::Atom;
 pub use select::Select;
 mod select;
 
-
+/// Drop rules
+/// This may be freed iff state is Pulsed | Dropped
+/// and Waiting is Dropped
 struct Inner {
-    state: AtomicIsize,
+    state: AtomicUsize,
     waiting: Atom<Waiting, Box<Waiting>>
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum State {
-    Pending = 0is,
-    Pulsed = 1is,
-    Dropped = 2is
-}
+const PULSED: usize = 1;
+const TX_DROPPED: usize = 2;
+const RX_DROPPED: usize = 4;
 
-impl State {
-    fn from_isize(v: isize) -> State {
-        match v {
-            0 => State::Pending,
-            1 => State::Pulsed,
-            2 => State::Dropped,
-            v => panic!("read invalid State {}", v)
-        }
-    }
-}
 
 pub enum Waiting {
     Thread(thread::Thread),
@@ -65,18 +54,20 @@ pub struct Trigger {
 
 impl Drop for Trigger {
     fn drop(&mut self) {
+        self.set(TX_DROPPED);
         if !self.pulsed {
-            self.set(State::Dropped)
+            self.wake();
         }
     }
 }
 
 impl Trigger {
-    fn set(&self, state: State) {
-        self.inner.state.store(state as isize, Ordering::Relaxed);
+    fn set(&self, state: usize) {
+        self.inner.state.fetch_or(state, Ordering::Relaxed);
+    }
 
+    fn wake(&self) {
         let id = unsafe { mem::transmute_copy(&self.inner) };
-
         match self.inner.waiting.take(Ordering::Acquire) {
             None => (),
             Some(v) => Waiting::trigger(v, id)
@@ -86,7 +77,8 @@ impl Trigger {
     /// Trigger an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
     pub fn pulse(mut self) {
-        self.set(State::Pulsed);
+        self.set(PULSED);
+        self.wake();
         self.pulsed = true;
     }
 }
@@ -96,7 +88,7 @@ pub struct Pulse(Arc<Inner>);
 impl Pulse {
     pub fn new() -> (Pulse, Trigger) {
         let inner = Arc::new(Inner {
-            state: AtomicIsize::new(0),
+            state: AtomicUsize::new(0),
             waiting: Atom::empty()
         });
 
@@ -108,13 +100,13 @@ impl Pulse {
     }
 
     // Read out the state of the Pulse
-    pub fn state(&self) -> State {
-        State::from_isize(self.0.state.load(Ordering::Relaxed))
+    fn state(&self) -> usize {
+        self.0.state.load(Ordering::Relaxed)
     }
 
     // Check to see if the pulse is pending or not
     pub fn is_pending(&self) -> bool {
-        self.state() == State::Pending
+        self.state() == 0
     }
 
     /// Arm a pulse to wake 
@@ -140,10 +132,11 @@ impl Pulse {
     pub fn wait(&self) -> Result<(), WaitError> {
         loop {
             if !self.is_pending() {
-                return match self.state() {
-                    State::Pulsed => Ok(()),
-                    State::Dropped => Err(WaitError(State::Dropped)),
-                    State::Pending => panic!("should not have been pending")
+                let state = self.state();
+                return if (state & PULSED) == PULSED {
+                    Ok(())
+                } else {
+                    Err(WaitError(state))
                 };
             }
 
@@ -162,8 +155,7 @@ impl Pulse {
     }
 
     pub fn recycle(&self) -> Trigger {
-        let state = self.0.state.load(Ordering::Relaxed);
-        if state == State::Pending as isize {
+        if self.is_pending() {
             panic!("Attempted to recycle pending Pulse")
         }
         self.0.state.store(0, Ordering::Relaxed);
@@ -175,4 +167,4 @@ impl Pulse {
 }
 
 #[derive(Debug)]
-pub struct WaitError(State);
+pub struct WaitError(usize);
