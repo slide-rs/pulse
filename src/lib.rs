@@ -1,9 +1,9 @@
 extern crate atom;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::mem;
+use std::ptr;
 use atom::Atom;
 
 pub use select::Select;
@@ -47,28 +47,40 @@ impl Waiting {
     }
 }
 
-pub struct Trigger {
-    pulsed: bool,
-    inner: Arc<Inner>
-}
+unsafe impl Send for Trigger {}
+
+pub struct Trigger(*mut Inner);
 
 impl Drop for Trigger {
     fn drop(&mut self) {
-        self.set(TX_DROPPED);
-        if !self.pulsed {
-            self.wake();
-        }
+        let flag = self.set(TX_DROPPED);
+        self.wake();
+        self.free(flag);
     }
 }
 
 impl Trigger {
-    fn set(&self, state: usize) {
-        self.inner.state.fetch_or(state, Ordering::Relaxed);
+    fn free(&mut self, flag: usize) {
+        if (flag & RX_DROPPED) == RX_DROPPED {
+            let inner: Box<Inner> = unsafe {
+                mem::transmute(self.0)
+            };
+            drop(inner);
+        }
+        self.0 = ptr::null_mut();
+    }
+
+    fn inner(&self) -> &Inner {
+        unsafe { mem::transmute(self.0) }
+    }
+
+    fn set(&self, state: usize) -> usize {
+        self.inner().state.fetch_or(state, Ordering::Relaxed)
     }
 
     fn wake(&self) {
-        let id = unsafe { mem::transmute_copy(&self.inner) };
-        match self.inner.waiting.take(Ordering::Acquire) {
+        let id = unsafe { mem::transmute(self.0) };
+        match self.inner().waiting.take(Ordering::Acquire) {
             None => (),
             Some(v) => Waiting::trigger(v, id)
         }
@@ -77,31 +89,52 @@ impl Trigger {
     /// Trigger an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
     pub fn pulse(mut self) {
-        self.set(PULSED);
+        let flag = self.set(PULSED | TX_DROPPED);
         self.wake();
-        self.pulsed = true;
+        
+        // We manually dropped ourselves to avoid to overhead
+        // of a third atomic operation
+        self.free(flag);
+        unsafe {mem::forget(self)};
     }
 }
 
-pub struct Pulse(Arc<Inner>);
+
+unsafe impl Send for Pulse {}
+
+pub struct Pulse(*mut Inner);
+
+impl Drop for Pulse {
+    fn drop(&mut self) {
+        let flag = self.inner().state.fetch_or(RX_DROPPED, Ordering::Relaxed);
+        if (flag & TX_DROPPED) == TX_DROPPED {
+            let inner: Box<Inner> = unsafe {
+                mem::transmute(self.0)
+            };
+            drop(inner);
+        }
+    }
+}
 
 impl Pulse {
     pub fn new() -> (Pulse, Trigger) {
-        let inner = Arc::new(Inner {
+        let inner = Box::new(Inner {
             state: AtomicUsize::new(0),
             waiting: Atom::empty()
         });
 
-        (Pulse(inner.clone()),
-         Trigger {
-            inner: inner,
-            pulsed: false
-        })
+        let inner = unsafe {mem::transmute(inner)};
+
+        (Pulse(inner), Trigger(inner))
+    }
+
+    fn inner(&self) -> &Inner {
+        unsafe { mem::transmute(self.0) }
     }
 
     // Read out the state of the Pulse
     fn state(&self) -> usize {
-        self.0.state.load(Ordering::Relaxed)
+        self.inner().state.load(Ordering::Relaxed)
     }
 
     // Check to see if the pulse is pending or not
@@ -111,7 +144,7 @@ impl Pulse {
 
     /// Arm a pulse to wake 
     pub fn arm(&self, waiter: Box<Waiting>) {
-        let old = self.0.waiting.swap(
+        let old = self.inner().waiting.swap(
             waiter,
             Ordering::AcqRel
         );
@@ -123,7 +156,7 @@ impl Pulse {
 
     /// Disarm a pulse
     pub fn disarm(&self) {
-        self.0.waiting.take(Ordering::Acquire);
+        self.inner().waiting.take(Ordering::Acquire);
     }
 
     /// Wait for an pulse to be triggered
@@ -158,11 +191,8 @@ impl Pulse {
         if self.is_pending() {
             panic!("Attempted to recycle pending Pulse")
         }
-        self.0.state.store(0, Ordering::Relaxed);
-        Trigger {
-            pulsed: false,
-            inner: self.0.clone()
-        }
+        self.inner().state.store(0, Ordering::Relaxed);
+        Trigger(self.0)
     }
 }
 
