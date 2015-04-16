@@ -72,3 +72,14 @@ fn recycle_panic() {
     let _ = p.recycle();
     drop(t);
 }
+
+#[test]
+fn false_positive_wake() {
+    let (p, t) = Pulse::new();
+    thread::current().unpark();
+    thread::spawn(|| {
+        thread::sleep_ms(10);
+        t.pulse();
+    });
+    p.wait().unwrap();
+}
