@@ -139,7 +139,6 @@ impl Pulse {
     /// Panics if something else is waiting on this already
     pub fn wait(&self) -> Result<(), WaitError> {
         loop {
-            println!("self.is_pending={}", self.is_pending());
             if !self.is_pending() {
                 return match self.state() {
                     State::Pulsed => Ok(()),
