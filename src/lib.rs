@@ -1,3 +1,5 @@
+#![feature(core)]
+
 extern crate atom;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -5,6 +7,8 @@ use std::thread;
 use std::mem;
 use std::ptr;
 use atom::Atom;
+
+use std::boxed::FnBox;
 
 pub use select::Select;
 pub use barrier::Barrier;
@@ -28,6 +32,7 @@ pub enum Waiting {
     Thread(thread::Thread),
     Select(select::Handle),
     Barrier(barrier::Handle),
+    Callback(Box<FnBox() + Send>)
 }
 
 impl Waiting {
@@ -51,7 +56,8 @@ impl Waiting {
                     }
                 }
             }
-        }        
+            Waiting::Callback(cb) => cb()
+        }
     }
 
     pub fn thread() -> Waiting {
@@ -161,6 +167,13 @@ impl Pulse {
             Ordering::AcqRel
         );
 
+        // if armed fire now
+        if !self.is_pending() {
+            if let Some(t) = self.inner().waiting.take(Ordering::Acquire) {
+                Waiting::trigger(t, self.id());
+            }
+        }
+
         if old.is_some() {
             panic!("Pulse cannot be waited on by multiple clients");
         }        
@@ -205,6 +218,10 @@ impl Pulse {
         }
         self.inner().state.store(0, Ordering::Relaxed);
         Trigger(self.0)
+    }
+
+    pub fn on_complete<F>(self, f: F) where F: FnOnce() + Send + 'static {
+        self.arm(Box::new(Waiting::Callback(Box::new(f))));
     }
 }
 
