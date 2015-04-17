@@ -77,6 +77,11 @@ impl Select {
         }
         None
     }
+
+    /// Get the number of Pulses being watched
+    pub fn len(&self) -> usize {
+        self.pulses.len()
+    }
 }
 
 impl Iterator for Select {
