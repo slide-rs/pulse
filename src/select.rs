@@ -44,7 +44,9 @@ impl Select {
             })
     }
 
-    pub fn wait(&mut self) -> Pulse {
+    /// Create a pulse that will trigger when something
+    /// is ready to be read from this Select
+    pub fn pulse(&mut self) -> Pulse {
         let (pulse, t) = Pulse::new();
         let mut guard = self.inner.lock().unwrap();
         if guard.ready.len() == 0 {
@@ -52,7 +54,7 @@ impl Select {
         } else {
             t.pulse();
         }
-        pulse
+        pulse  
     }
 }
 

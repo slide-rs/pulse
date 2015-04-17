@@ -7,7 +7,9 @@ use std::ptr;
 use atom::Atom;
 
 pub use select::Select;
+pub use barrier::Barrier;
 mod select;
+mod barrier;
 
 /// Drop rules
 /// This may be freed iff state is Pulsed | Dropped
@@ -24,7 +26,8 @@ const RX_DROPPED: usize = 4;
 
 pub enum Waiting {
     Thread(thread::Thread),
-    Select(select::Handle)
+    Select(select::Handle),
+    Barrier(barrier::Handle)
 }
 
 impl Waiting {
@@ -38,6 +41,15 @@ impl Waiting {
                     guard.trigger.take()
                 };
                 trigger.map(|x| x.pulse());
+            }
+            Waiting::Barrier(barrier) => {
+                let count = barrier.0.count.fetch_sub(1, Ordering::Relaxed);
+                if count == 1 {
+                    let mut guard = barrier.0.trigger.lock().unwrap();
+                    if let Some(t) = guard.take() {
+                        t.pulse();
+                    }
+                }
             }
         }        
     }
