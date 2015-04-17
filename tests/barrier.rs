@@ -77,3 +77,28 @@ fn using_threads() {
 
     pulse.wait().unwrap();
 }
+
+#[test]
+fn dropped_barrier() {
+    let mut pulses = Vec::new();
+    let mut triggers = Vec::new();
+    for _ in 0..8 {
+        let (p, t) = Pulse::new();
+        pulses.push(p);
+        triggers.push(t);
+    }
+
+    let pulse = {
+        let barrier = Barrier::new(&pulses[..]);
+        barrier.pulse()
+    };
+
+    let last_trigger = triggers.pop().unwrap();
+    for t in triggers {
+        t.pulse();
+        assert!(pulse.is_pending());
+    }
+
+    last_trigger.pulse();
+    assert!(!pulse.is_pending());   
+}

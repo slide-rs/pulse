@@ -27,7 +27,7 @@ const RX_DROPPED: usize = 4;
 pub enum Waiting {
     Thread(thread::Thread),
     Select(select::Handle),
-    Barrier(barrier::Handle)
+    Barrier(barrier::Handle),
 }
 
 impl Waiting {
