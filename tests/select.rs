@@ -35,6 +35,9 @@ fn select_three() {
     t2.pulse();
     let p = select.next().unwrap();
     assert_eq!(id2, p.id());
+
+    let p = select.next();
+    assert!(p.is_none());
 }
 
 #[test]
@@ -63,4 +66,29 @@ fn select_thread() {
     assert_eq!(id1, p.id());
     let p = select.next().unwrap();
     assert_eq!(id2, p.id());
+    let p = select.next();
+    assert!(p.is_none());
+}
+
+#[test]
+fn select_barrier() {
+    let (p0, t0) = Pulse::new();
+    let (p1, t1) = Pulse::new();
+    let (p2, t2) = Pulse::new();
+
+    let mut select = Select::new();
+    let _ = select.add(p0);
+    let _ = select.add(p1);
+    let _ = select.add(p2);
+
+    thread::spawn(move || {
+        thread::sleep_ms(10);
+        t0.pulse();
+        thread::sleep_ms(10);
+        t1.pulse();
+        thread::sleep_ms(10);
+        t2.pulse();
+    });
+
+    select.into_barrier().pulse().wait().unwrap();
 }

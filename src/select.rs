@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use {Pulse, Trigger, Waiting};
+use {Pulse, Trigger, Waiting, Barrier};
 
 struct Inner {
     pub ready: Vec<usize>,
@@ -56,6 +56,18 @@ impl Select {
         }
         pulse  
     }
+
+    pub fn into_barrier(self) -> Barrier<Vec<Pulse>> {
+        let vec: Vec<Pulse> = 
+            self.pulses
+                .into_iter()
+                .map(|(_,p)| {
+                    p.disarm();
+                    p
+                }).collect();
+
+        Barrier::new(vec)
+    }
 }
 
 impl Iterator for Select {
@@ -63,6 +75,10 @@ impl Iterator for Select {
 
     fn next(&mut self) -> Option<Pulse> {
         loop {
+            if self.pulses.len() == 0 {
+                return None;
+            }
+
             let pulse = {
                 let mut guard = self.inner.lock().unwrap();
                 if let Some(x) = guard.ready.pop() {
