@@ -92,3 +92,17 @@ fn select_barrier() {
 
     select.into_barrier().pulse().wait().unwrap();
 }
+
+#[test]
+fn select_already_pulsed() {
+    let (p0, t0) = Pulse::new();
+    t0.pulse();
+
+    let mut select = Select::new();
+    let id0 = select.add(p0);
+
+    let p = select.next().unwrap();
+    assert_eq!(id0, p.id());
+    let p = select.next();
+    assert!(p.is_none());
+}

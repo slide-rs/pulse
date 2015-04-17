@@ -68,6 +68,15 @@ impl Select {
 
         Barrier::new(vec)
     }
+
+    /// None blocking next
+    pub fn try_next(&mut self) -> Option<Pulse> {
+        let mut guard = self.inner.lock().unwrap();
+        if let Some(x) = guard.ready.pop() {
+            return Some(self.pulses.remove(&x).unwrap())
+        }
+        None
+    }
 }
 
 impl Iterator for Select {
