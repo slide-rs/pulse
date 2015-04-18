@@ -23,10 +23,9 @@ struct Inner {
     waiting: Atom<Waiting, Box<Waiting>>
 }
 
-const PULSED: usize = 1;
-const TX_DROPPED: usize = 2;
-const RX_DROPPED: usize = 4;
-
+const PULSED: usize = 0x8000_0000;
+const TX_DROPPED: usize = 0x4000_0000;
+const RX_DROPPED: usize = 0x2000_0000;
 
 pub enum Waiting {
     Thread(thread::Thread),
@@ -60,7 +59,7 @@ impl Waiting {
         }
     }
 
-    pub fn thread() -> Waiting {
+    fn thread() -> Waiting {
         Waiting::Thread(thread::current())
     }
 }
@@ -161,7 +160,7 @@ impl Pulse {
     }
 
     /// Arm a pulse to wake 
-    pub fn arm(&self, waiter: Box<Waiting>) {
+    fn arm(&self, waiter: Box<Waiting>) {
         let old = self.inner().waiting.swap(
             waiter,
             Ordering::AcqRel
@@ -180,7 +179,7 @@ impl Pulse {
     }
 
     /// Disarm a pulse
-    pub fn disarm(&self) {
+    fn disarm(&self) {
         self.inner().waiting.take(Ordering::Acquire);
     }
 
