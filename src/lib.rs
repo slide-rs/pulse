@@ -5,7 +5,7 @@ extern crate atom;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::mem;
-use atom::Atom;
+use atom::{Atom, GetNextMut};
 
 use std::boxed::FnBox;
 
@@ -33,6 +33,14 @@ struct Waiting {
     wake: Wake
 }
 
+impl GetNextMut for Waiting {
+    type NextPtr = Option<Box<Waiting>>;
+    
+    fn get_next(&mut self) -> &mut Option<Box<Waiting>> {
+        &mut self.next
+    }
+}
+
 enum Wake {
     Thread(thread::Thread),
     Select(select::Handle),
@@ -44,6 +52,7 @@ impl Waiting {
     fn trigger(s: Box<Self>, id: usize) {
         let mut next = Some(s);
         while let Some(s) = next {
+            // There must be a better way to do this...
             let s = *s;
             let Waiting { next: n, wake } = s;
             next = n;
