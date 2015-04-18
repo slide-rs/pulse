@@ -27,11 +27,7 @@ impl Select {
 
     pub fn add(&mut self, pulse: Pulse) -> usize {
         let id = pulse.id();
-        pulse.arm(
-            Box::new(
-                Waiting::Select(Handle(self.inner.clone()))
-            )
-        );
+        pulse.arm(Waiting::select(Handle(self.inner.clone())));
         self.pulses.insert(id, pulse);
         id
     }

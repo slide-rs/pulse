@@ -28,7 +28,12 @@ const TX_DROP: usize = 0x4000_0000;
 const TX_FLAGS: usize = PULSED | TX_DROP;
 const REF_COUNT: usize = !TX_FLAGS;
 
-pub enum Waiting {
+struct Waiting {
+    next: Option<Box<Waiting>>,
+    wake: Wake
+}
+
+enum Wake {
     Thread(thread::Thread),
     Select(select::Handle),
     Barrier(barrier::Handle),
@@ -37,31 +42,61 @@ pub enum Waiting {
 
 impl Waiting {
     fn trigger(s: Box<Self>, id: usize) {
-        match *s {
-            Waiting::Thread(thread) => thread.unpark(),
-            Waiting::Select(select) => {
-                let trigger = {
-                    let mut guard = select.0.lock().unwrap();
-                    guard.ready.push(id);
-                    guard.trigger.take()
-                };
-                trigger.map(|x| x.pulse());
-            }
-            Waiting::Barrier(barrier) => {
-                let count = barrier.0.count.fetch_sub(1, Ordering::Relaxed);
-                if count == 1 {
-                    let mut guard = barrier.0.trigger.lock().unwrap();
-                    if let Some(t) = guard.take() {
-                        t.pulse();
+        let mut next = Some(s);
+        while let Some(s) = next {
+            let s = *s;
+            let Waiting { next: n, wake } = s;
+            next = n;
+            match wake {
+                Wake::Thread(thread) => thread.unpark(),
+                Wake::Select(select) => {
+                    let trigger = {
+                        let mut guard = select.0.lock().unwrap();
+                        guard.ready.push(id);
+                        guard.trigger.take()
+                    };
+                    trigger.map(|x| x.pulse());
+                }
+                Wake::Barrier(barrier) => {
+                    let count = barrier.0.count.fetch_sub(1, Ordering::Relaxed);
+                    if count == 1 {
+                        let mut guard = barrier.0.trigger.lock().unwrap();
+                        if let Some(t) = guard.take() {
+                            t.pulse();
+                        }
                     }
                 }
+                Wake::Callback(cb) => cb()
             }
-            Waiting::Callback(cb) => cb()
         }
     }
 
-    fn thread() -> Waiting {
-        Waiting::Thread(thread::current())
+    fn thread() -> Box<Waiting> {
+        Box::new(Waiting {
+            next: None,
+            wake: Wake::Thread(thread::current())
+        })
+    }
+
+    fn select(handle: select::Handle) ->Box<Waiting> {
+        Box::new(Waiting{
+            next: None,
+            wake: Wake::Select(handle)
+        })
+    }
+
+    fn barrier(handle: barrier::Handle) ->Box<Waiting> {
+        Box::new(Waiting{
+            next: None,
+            wake: Wake::Barrier(handle)
+        })
+    }
+
+    fn callback(f: Box<FnBox() + Send>) ->Box<Waiting> {
+        Box::new(Waiting{
+            next: None,
+            wake: Wake::Callback(f)
+        })
     }
 }
 
@@ -215,7 +250,7 @@ impl Pulse {
                 };
             }
 
-            self.arm(Box::new(Waiting::thread()));
+            self.arm(Waiting::thread());
 
             if self.is_pending() {
                 // wait for wake
@@ -242,7 +277,7 @@ impl Pulse {
     }
 
     pub fn on_complete<F>(self, f: F) where F: FnOnce() + Send + 'static {
-        self.arm(Box::new(Waiting::Callback(Box::new(f))));
+        self.arm(Waiting::callback(Box::new(f)));
     }
 }
 

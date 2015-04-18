@@ -23,7 +23,7 @@ impl<T> Barrier<T> where T: AsRef<[Pulse]> {
             trigger: Mutex::new(None)
         });
         for pulse in pulses.as_ref().iter() {
-            pulse.arm(Box::new(Waiting::Barrier(Handle(inner.clone()))))
+            pulse.arm(Waiting::barrier(Handle(inner.clone())))
         }
         Barrier {
             inner: inner,
