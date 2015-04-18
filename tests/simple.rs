@@ -83,3 +83,41 @@ fn false_positive_wake() {
     });
     p.wait().unwrap();
 }
+
+#[test]
+fn clone() {
+    let (p0, t) = Pulse::new();
+    let p1 = p0.clone();
+
+    assert!(p0.is_pending());
+    assert!(p1.is_pending());
+    assert_eq!(p0.id(), p1.id());
+
+    t.pulse();
+
+    assert!(!p0.is_pending());
+    assert!(!p1.is_pending());
+
+    drop(p0);
+    assert!(!p1.is_pending());
+    drop(p1);
+}
+
+#[test]
+fn clone_recyle() {
+    let (p0, t) = Pulse::new();
+    let p1 = p0.clone();
+
+    assert!(p0.is_pending());
+    assert!(p1.is_pending());
+    assert_eq!(p0.id(), p1.id());
+
+    t.pulse();
+
+    assert!(!p0.is_pending());
+    assert!(!p1.is_pending());
+    assert!(p0.recycle().is_none());
+    assert!(!p1.is_pending());
+    drop(p0);
+    assert!(p1.recycle().is_some());
+}

@@ -127,6 +127,13 @@ unsafe impl Send for Pulse {}
 
 pub struct Pulse(*mut Inner);
 
+impl Clone for Pulse {
+    fn clone(&self) -> Pulse {
+        self.inner().state.fetch_add(1, Ordering::Relaxed);
+        Pulse(self.0)   
+    }
+}
+
 impl Drop for Pulse {
     fn drop(&mut self) {
         let flag = self.inner().state.fetch_sub(1, Ordering::Relaxed);
@@ -167,7 +174,7 @@ impl Pulse {
     // Check to see if the pulse is pending or not
     fn in_use(&self) -> bool {
         let state = self.state();
-        (state & REF_COUNT) != 1 && (state & TX_FLAGS) == 0
+        (state & REF_COUNT) != 1 || (state & TX_FLAGS) == 0
     }
 
     /// Arm a pulse to wake 
