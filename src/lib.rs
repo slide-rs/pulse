@@ -5,7 +5,6 @@ extern crate atom;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::mem;
-use std::ptr;
 use atom::Atom;
 
 use std::boxed::FnBox;
@@ -23,9 +22,11 @@ struct Inner {
     waiting: Atom<Waiting, Box<Waiting>>
 }
 
+// TODO 64bit sized, probably does not matter now
 const PULSED: usize = 0x8000_0000;
-const TX_DROPPED: usize = 0x4000_0000;
-const RX_DROPPED: usize = 0x2000_0000;
+const TX_DROP: usize = 0x4000_0000;
+const TX_FLAGS: usize = PULSED | TX_DROP;
+const REF_COUNT: usize = !TX_FLAGS;
 
 pub enum Waiting {
     Thread(thread::Thread),
@@ -66,29 +67,34 @@ impl Waiting {
 
 unsafe impl Send for Trigger {}
 
-pub struct Trigger(*mut Inner);
+pub struct Trigger {
+    inner: *mut Inner,
+    pulsed: bool
+}
+
+fn delete_inner(state: usize, inner: *mut Inner) {
+    if state & REF_COUNT == 1 {
+        let inner: Box<Inner> = unsafe {
+            mem::transmute(inner)
+        };
+        drop(inner);     
+    }
+}
 
 impl Drop for Trigger {
     fn drop(&mut self) {
-        let flag = self.set(TX_DROPPED);
-        self.wake();
-        self.free(flag);
+        if !self.pulsed {
+            self.set(TX_DROP);
+            self.wake();
+        }
+        let state = self.inner().state.fetch_sub(1, Ordering::Relaxed);
+        delete_inner(state, self.inner)
     }
 }
 
 impl Trigger {
-    fn free(&mut self, flag: usize) {
-        if (flag & RX_DROPPED) == RX_DROPPED {
-            let inner: Box<Inner> = unsafe {
-                mem::transmute(self.0)
-            };
-            drop(inner);
-        }
-        self.0 = ptr::null_mut();
-    }
-
     fn inner(&self) -> &Inner {
-        unsafe { mem::transmute(self.0) }
+        unsafe { mem::transmute(self.inner) }
     }
 
     fn set(&self, state: usize) -> usize {
@@ -96,7 +102,7 @@ impl Trigger {
     }
 
     fn wake(&self) {
-        let id = unsafe { mem::transmute(self.0) };
+        let id = unsafe { mem::transmute(self.inner) };
         match self.inner().waiting.take(Ordering::Acquire) {
             None => (),
             Some(v) => Waiting::trigger(v, id)
@@ -106,13 +112,13 @@ impl Trigger {
     /// Trigger an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
     pub fn pulse(mut self) {
-        let flag = self.set(PULSED | TX_DROPPED);
+        self.pulsed = true;
+        self.set(PULSED);
         self.wake();
-        
-        // We manually dropped ourselves to avoid to overhead
-        // of a third atomic operation
-        self.free(flag);
-        unsafe {mem::forget(self)};
+
+        let state = self.inner().state.fetch_sub(1, Ordering::Relaxed);
+        delete_inner(state, self.inner);
+        unsafe { mem::forget(self) }
     }
 }
 
@@ -123,26 +129,25 @@ pub struct Pulse(*mut Inner);
 
 impl Drop for Pulse {
     fn drop(&mut self) {
-        let flag = self.inner().state.fetch_or(RX_DROPPED, Ordering::Relaxed);
-        if (flag & TX_DROPPED) == TX_DROPPED {
-            let inner: Box<Inner> = unsafe {
-                mem::transmute(self.0)
-            };
-            drop(inner);
-        }
+        let flag = self.inner().state.fetch_sub(1, Ordering::Relaxed);
+        delete_inner(flag, self.0);
     }
 }
 
 impl Pulse {
     pub fn new() -> (Pulse, Trigger) {
         let inner = Box::new(Inner {
-            state: AtomicUsize::new(0),
+            state: AtomicUsize::new(2),
             waiting: Atom::empty()
         });
 
         let inner = unsafe {mem::transmute(inner)};
 
-        (Pulse(inner), Trigger(inner))
+        (Pulse(inner),
+         Trigger{
+            inner: inner,
+            pulsed: false
+        })
     }
 
     fn inner(&self) -> &Inner {
@@ -156,7 +161,13 @@ impl Pulse {
 
     // Check to see if the pulse is pending or not
     pub fn is_pending(&self) -> bool {
-        self.state() == 0
+        self.state() & TX_FLAGS == 0
+    }
+
+    // Check to see if the pulse is pending or not
+    fn in_use(&self) -> bool {
+        let state = self.state();
+        (state & REF_COUNT) != 1 && (state & TX_FLAGS) == 0
     }
 
     /// Arm a pulse to wake 
@@ -211,12 +222,16 @@ impl Pulse {
         unsafe { mem::transmute_copy(&self.0) }
     }
 
-    pub fn recycle(&self) -> Trigger {
-        if self.is_pending() {
-            panic!("Attempted to recycle pending Pulse")
+    pub fn recycle(&self) -> Option<Trigger> {
+        if self.in_use() {
+            None
+        } else {
+            self.inner().state.store(2, Ordering::Relaxed);
+            Some(Trigger{
+                inner: self.0,
+                pulsed: false,
+            })
         }
-        self.inner().state.store(0, Ordering::Relaxed);
-        Trigger(self.0)
     }
 
     pub fn on_complete<F>(self, f: F) where F: FnOnce() + Send + 'static {

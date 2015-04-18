@@ -59,7 +59,7 @@ fn recycle() {
     assert!(p.is_pending());
     t.pulse();
     assert!(!p.is_pending());
-    let t = p.recycle();
+    let t = p.recycle().unwrap();
     assert!(p.is_pending());
     t.pulse();
     assert!(!p.is_pending());
@@ -69,7 +69,7 @@ fn recycle() {
 #[should_panic]
 fn recycle_panic() {
     let (p, t) = Pulse::new();
-    let _ = p.recycle();
+    let _ = p.recycle().unwrap();
     drop(t);
 }
 

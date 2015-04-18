@@ -32,7 +32,7 @@ fn pulse_set(b: &mut Bencher) {
     let (p, _) = Pulse::new();
 
     b.iter(|| {
-        let t = p.recycle();
+        let t = p.recycle().unwrap();
         t.pulse();
         p.wait().unwrap();
     });
