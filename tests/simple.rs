@@ -121,3 +121,22 @@ fn clone_recyle() {
     drop(p0);
     assert!(p1.recycle().is_some());
 }
+
+#[test]
+fn clone_wait() {
+    let (p0, t) = Pulse::new();
+    let p1 = p0.clone();
+
+    let t0 = thread::spawn(move || {
+        p0.wait().unwrap();
+    });
+
+    let t1 = thread::spawn(move || {
+        p1.wait().unwrap();;
+    });
+
+    thread::sleep_ms(10);
+    t.pulse();
+    t0.join().unwrap();
+    t1.join().unwrap();
+}

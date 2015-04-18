@@ -33,7 +33,7 @@ struct Waiting {
     wake: Wake
 }
 
-impl GetNextMut for Waiting {
+impl GetNextMut for Box<Waiting> {
     type NextPtr = Option<Box<Waiting>>;
     
     fn get_next(&mut self) -> &mut Option<Box<Waiting>> {
@@ -223,7 +223,7 @@ impl Pulse {
 
     /// Arm a pulse to wake 
     fn arm(&self, waiter: Box<Waiting>) {
-        let old = self.inner().waiting.swap(
+        self.inner().waiting.replace_and_set_next(
             waiter,
             Ordering::AcqRel
         );
@@ -233,11 +233,7 @@ impl Pulse {
             if let Some(t) = self.inner().waiting.take(Ordering::Acquire) {
                 Waiting::trigger(t, self.id());
             }
-        }
-
-        if old.is_some() {
-            panic!("Pulse cannot be waited on by multiple clients");
-        }        
+        }       
     }
 
     /// Disarm a pulse
