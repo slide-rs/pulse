@@ -1,4 +1,3 @@
-
 extern crate pulse;
 
 use std::thread;
@@ -82,4 +81,88 @@ fn false_positive_wake() {
         t.pulse();
     });
     p.wait().unwrap();
+}
+
+#[test]
+fn clone() {
+    let (p0, t) = Pulse::new();
+    let p1 = p0.clone();
+
+    assert!(p0.is_pending());
+    assert!(p1.is_pending());
+    assert_eq!(p0.id(), p1.id());
+
+    t.pulse();
+
+    assert!(!p0.is_pending());
+    assert!(!p1.is_pending());
+
+    drop(p0);
+    assert!(!p1.is_pending());
+    drop(p1);
+}
+
+#[test]
+fn clone_recyle() {
+    let (p0, t) = Pulse::new();
+    let p1 = p0.clone();
+
+    assert!(p0.is_pending());
+    assert!(p1.is_pending());
+    assert_eq!(p0.id(), p1.id());
+
+    t.pulse();
+
+    assert!(!p0.is_pending());
+    assert!(!p1.is_pending());
+    assert!(p0.recycle().is_none());
+    assert!(!p1.is_pending());
+    drop(p0);
+    assert!(p1.recycle().is_some());
+}
+
+#[test]
+fn clone_wait() {
+    let (p0, t) = Pulse::new();
+    let p1 = p0.clone();
+
+    let t0 = thread::spawn(move || {
+        p0.wait().unwrap();
+    });
+
+    let t1 = thread::spawn(move || {
+        p1.wait().unwrap();;
+    });
+
+    thread::sleep_ms(10);
+    t.pulse();
+    t0.join().unwrap();
+    t1.join().unwrap();
+}
+
+#[test]
+fn barrier_reuse() {
+    let (p, t) = Pulse::new();
+    let barrier = Barrier::new(vec![p.clone()]);
+    let barriers: Vec<Barrier> =
+        (0..20).map(|_| Barrier::new(vec![p.clone()]))
+               .collect();
+
+    let pulses: Vec<Pulse> = barriers.into_iter().map(|b| {
+        let p = b.pulse();
+        assert!(p.is_pending());
+        b.take();
+        p
+    }).collect();
+
+    assert!(p.is_pending());
+    assert!(barrier.pulse().is_pending());
+    t.pulse();
+    assert!(!p.is_pending());
+    assert!(!barrier.pulse().is_pending());
+    for p in pulses {
+        // These will all error out since the pulse
+        // was destroyed;
+        assert!(p.wait().is_err());
+    }
 }

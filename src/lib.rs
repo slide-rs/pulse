@@ -5,7 +5,8 @@ extern crate atom;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::mem;
-use atom::Atom;
+use std::ops::Deref;
+use atom::{Atom, GetNextMut};
 
 use std::boxed::FnBox;
 
@@ -28,7 +29,20 @@ const TX_DROP: usize = 0x4000_0000;
 const TX_FLAGS: usize = PULSED | TX_DROP;
 const REF_COUNT: usize = !TX_FLAGS;
 
-pub enum Waiting {
+struct Waiting {
+    next: Option<Box<Waiting>>,
+    wake: Wake
+}
+
+impl GetNextMut for Box<Waiting> {
+    type NextPtr = Option<Box<Waiting>>;
+    
+    fn get_next(&mut self) -> &mut Option<Box<Waiting>> {
+        &mut self.next
+    }
+}
+
+enum Wake {
     Thread(thread::Thread),
     Select(select::Handle),
     Barrier(barrier::Handle),
@@ -37,31 +51,66 @@ pub enum Waiting {
 
 impl Waiting {
     fn trigger(s: Box<Self>, id: usize) {
-        match *s {
-            Waiting::Thread(thread) => thread.unpark(),
-            Waiting::Select(select) => {
-                let trigger = {
-                    let mut guard = select.0.lock().unwrap();
-                    guard.ready.push(id);
-                    guard.trigger.take()
-                };
-                trigger.map(|x| x.pulse());
-            }
-            Waiting::Barrier(barrier) => {
-                let count = barrier.0.count.fetch_sub(1, Ordering::Relaxed);
-                if count == 1 {
-                    let mut guard = barrier.0.trigger.lock().unwrap();
-                    if let Some(t) = guard.take() {
-                        t.pulse();
+        let mut next = Some(s);
+        while let Some(s) = next {
+            // There must be a better way to do this...
+            let s = *s;
+            let Waiting { next: n, wake } = s;
+            next = n;
+            match wake {
+                Wake::Thread(thread) => thread.unpark(),
+                Wake::Select(select) => {
+                    let trigger = {
+                        let mut guard = select.0.lock().unwrap();
+                        guard.ready.push(id);
+                        guard.trigger.take()
+                    };
+                    trigger.map(|x| x.pulse());
+                }
+                Wake::Barrier(barrier) => {
+                    let count = barrier.0.count.fetch_sub(1, Ordering::Relaxed);
+                    if count == 1 {
+                        let mut guard = barrier.0.trigger.lock().unwrap();
+                        if let Some(t) = guard.take() {
+                            t.pulse();
+                        }
                     }
                 }
+                Wake::Callback(cb) => cb()
             }
-            Waiting::Callback(cb) => cb()
         }
     }
 
-    fn thread() -> Waiting {
-        Waiting::Thread(thread::current())
+    fn id(&self) -> usize {
+        unsafe { mem::transmute(self) }
+    }
+
+    fn thread() -> Box<Waiting> {
+        Box::new(Waiting {
+            next: None,
+            wake: Wake::Thread(thread::current())
+        })
+    }
+
+    fn select(handle: select::Handle) ->Box<Waiting> {
+        Box::new(Waiting{
+            next: None,
+            wake: Wake::Select(handle)
+        })
+    }
+
+    fn barrier(handle: barrier::Handle) ->Box<Waiting> {
+        Box::new(Waiting{
+            next: None,
+            wake: Wake::Barrier(handle)
+        })
+    }
+
+    fn callback(f: Box<FnBox() + Send>) ->Box<Waiting> {
+        Box::new(Waiting{
+            next: None,
+            wake: Wake::Callback(f)
+        })
     }
 }
 
@@ -125,12 +174,21 @@ impl Trigger {
 
 unsafe impl Send for Pulse {}
 
-pub struct Pulse(*mut Inner);
+pub struct Pulse {
+    inner: *mut Inner
+}
+
+impl Clone for Pulse {
+    fn clone(&self) -> Pulse {
+        self.inner().state.fetch_add(1, Ordering::Relaxed);
+        Pulse { inner: self.inner }
+    }
+}
 
 impl Drop for Pulse {
     fn drop(&mut self) {
         let flag = self.inner().state.fetch_sub(1, Ordering::Relaxed);
-        delete_inner(flag, self.0);
+        delete_inner(flag, self.inner);
     }
 }
 
@@ -143,15 +201,17 @@ impl Pulse {
 
         let inner = unsafe {mem::transmute(inner)};
 
-        (Pulse(inner),
-         Trigger{
+        (Pulse {
+            inner: inner
+         },
+         Trigger {
             inner: inner,
             pulsed: false
         })
     }
 
     fn inner(&self) -> &Inner {
-        unsafe { mem::transmute(self.0) }
+        unsafe { mem::transmute(self.inner) }
     }
 
     // Read out the state of the Pulse
@@ -159,7 +219,7 @@ impl Pulse {
         self.inner().state.load(Ordering::Relaxed)
     }
 
-    // Check to see if the pulse is pending or not
+    /// Check to see if the pulse is pending or not
     pub fn is_pending(&self) -> bool {
         self.state() & TX_FLAGS == 0
     }
@@ -167,12 +227,14 @@ impl Pulse {
     // Check to see if the pulse is pending or not
     fn in_use(&self) -> bool {
         let state = self.state();
-        (state & REF_COUNT) != 1 && (state & TX_FLAGS) == 0
+        (state & REF_COUNT) != 1 || (state & TX_FLAGS) == 0
     }
 
-    /// Arm a pulse to wake 
-    fn arm(&self, waiter: Box<Waiting>) {
-        let old = self.inner().waiting.swap(
+    /// Add a waiter to a waitlist
+    fn add_to_waitlist(&self, waiter: Box<Waiting>) -> usize {
+        let id = waiter.id();
+
+        self.inner().waiting.replace_and_set_next(
             waiter,
             Ordering::AcqRel
         );
@@ -183,15 +245,37 @@ impl Pulse {
                 Waiting::trigger(t, self.id());
             }
         }
-
-        if old.is_some() {
-            panic!("Pulse cannot be waited on by multiple clients");
-        }        
+        id
     }
 
-    /// Disarm a pulse
-    fn disarm(&self) {
-        self.inner().waiting.take(Ordering::Acquire);
+    /// Remove Waiter with `id` from the waitlist
+    fn remove_from_waitlist(&self, id: usize) {
+        let mut wl = self.inner().waiting.take(Ordering::Acquire);
+        while let Some(mut w) = wl {
+            let next = w.next.take();
+            if w.id() != id {
+                self.add_to_waitlist(w);
+            }
+            wl = next;
+        }
+    }
+
+    /// Arm a pulse to wake 
+    fn arm(self, waiter: Box<Waiting>) -> ArmedPulse {
+        let id = self.add_to_waitlist(waiter);
+        ArmedPulse {
+            id: id,
+            pulse: self
+        }
+    }
+
+    /// Arm a pulse that is only armed for 
+    fn arm_ref<'a>(&'a self, waiter: Box<Waiting>) -> ArmedPulseRef<'a> {
+        let id = self.add_to_waitlist(waiter);
+        ArmedPulseRef {
+            pulse: self,
+            id: id
+        }
     }
 
     /// Wait for an pulse to be triggered
@@ -208,18 +292,16 @@ impl Pulse {
                 };
             }
 
-            self.arm(Box::new(Waiting::thread()));
-
+            let p = self.arm_ref(Waiting::thread());
             if self.is_pending() {
-                // wait for wake
                 thread::park();
             }
-            self.disarm();
+            drop(p);
         }
     }
 
     pub fn id(&self) -> usize {
-        unsafe { mem::transmute_copy(&self.0) }
+        unsafe { mem::transmute_copy(&self.inner) }
     }
 
     pub fn recycle(&self) -> Option<Trigger> {
@@ -228,16 +310,51 @@ impl Pulse {
         } else {
             self.inner().state.store(2, Ordering::Relaxed);
             Some(Trigger{
-                inner: self.0,
+                inner: self.inner,
                 pulsed: false,
             })
         }
     }
 
     pub fn on_complete<F>(self, f: F) where F: FnOnce() + Send + 'static {
-        self.arm(Box::new(Waiting::Callback(Box::new(f))));
+        self.arm(Waiting::callback(Box::new(f)));
     }
 }
 
 #[derive(Debug)]
 pub struct WaitError(usize);
+
+pub struct ArmedPulse {
+    pulse: Pulse,
+    id: usize
+}
+
+impl Deref for ArmedPulse {
+    type Target = Pulse;
+
+    fn deref(&self) -> &Pulse { &self.pulse }
+}
+
+impl ArmedPulse {
+    fn disarm(self) -> Pulse {
+        self.remove_from_waitlist(self.id);
+        self.pulse
+    }
+}
+
+pub struct ArmedPulseRef<'a> {
+    pulse: &'a Pulse,
+    id: usize
+}
+
+impl<'a> Deref for ArmedPulseRef<'a> {
+    type Target = Pulse;
+
+    fn deref(&self) -> &Pulse { &self.pulse }
+}
+
+impl<'a> Drop for ArmedPulseRef<'a> {
+    fn drop(&mut self) {
+        self.remove_from_waitlist(self.id);
+    }
+}
