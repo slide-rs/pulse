@@ -1,37 +1,41 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::iter::IntoIterator;
 
-use {Trigger, Pulse, Waiting};
+use {Trigger, Pulse, ArmedPulse, Waiting};
 
 struct Inner {
     pub count: AtomicUsize,
     pub trigger: Mutex<Option<Trigger>>
 }
 
-pub struct Barrier<T> {
+pub struct Barrier {
     inner: Arc<Inner>,
-    pulses: T
+    pulses: Vec<ArmedPulse>
 }
 
 pub struct Handle(pub Arc<Inner>);
 
-impl<T> Barrier<T> where T: AsRef<[Pulse]> {
-    pub fn new(pulses: T) -> Barrier<T> {
-        let len = pulses.as_ref().len();
+// This is dumb, I can't find a trait that gives me 
+// Mutable access to pulses as an array
+impl Barrier {
+    pub fn new(pulses: Vec<Pulse>) -> Barrier {
+        // count items
         let inner = Arc::new(Inner{
-            count: AtomicUsize::new(len),
+            count: AtomicUsize::new(pulses.len()),
             trigger: Mutex::new(None)
         });
-        for pulse in pulses.as_ref().iter() {
-            pulse.arm(Waiting::barrier(Handle(inner.clone())))
-        }
+        let pulses: Vec<ArmedPulse> = 
+            pulses.into_iter()
+                  .map(|x| x.arm(Waiting::barrier(Handle(inner.clone()))))
+                  .collect();
+
         Barrier {
             inner: inner,
             pulses: pulses
         }
     }
 
-    // 
     pub fn pulse(&self) -> Pulse {
         let (p, t) = Pulse::new();
         if self.inner.count.load(Ordering::Relaxed) == 0 {
@@ -43,10 +47,8 @@ impl<T> Barrier<T> where T: AsRef<[Pulse]> {
         p
     }
 
-    pub fn take(self) -> T {
-        for pulse in self.pulses.as_ref().iter() {
-            pulse.disarm();
-        }
-        self.pulses
+    pub fn take(self) -> Vec<Pulse> {
+        self.pulses.into_iter().map(|x| x.disarm()).collect()
     }
 }
+

@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use {Pulse, Trigger, Waiting, Barrier};
+use {Pulse, ArmedPulse, Trigger, Waiting, Barrier};
 
 struct Inner {
     pub ready: Vec<usize>,
@@ -11,7 +11,7 @@ pub struct Handle(pub Arc<Mutex<Inner>>);
 
 pub struct Select {
     inner: Arc<Mutex<Inner>>,
-    pulses: HashMap<usize, Pulse>
+    pulses: HashMap<usize, ArmedPulse>
 }
 
 impl Select {
@@ -27,17 +27,14 @@ impl Select {
 
     pub fn add(&mut self, pulse: Pulse) -> usize {
         let id = pulse.id();
-        pulse.arm(Waiting::select(Handle(self.inner.clone())));
-        self.pulses.insert(id, pulse);
+        let p = pulse.arm(Waiting::select(Handle(self.inner.clone())));
+        self.pulses.insert(id, p);
         id
     }
 
     pub fn remove(&mut self, id: usize) -> Option<Pulse> {
         self.pulses.remove(&id)
-            .map(|x| {
-                x.disarm();
-                x
-            })
+            .map(|x| x.disarm())
     }
 
     /// Create a pulse that will trigger when something
@@ -53,14 +50,12 @@ impl Select {
         pulse  
     }
 
-    pub fn into_barrier(self) -> Barrier<Vec<Pulse>> {
+    pub fn into_barrier(self) -> Barrier {
         let vec: Vec<Pulse> = 
             self.pulses
                 .into_iter()
-                .map(|(_,p)| {
-                    p.disarm();
-                    p
-                }).collect();
+                .map(|(_, p)| p.disarm())
+                .collect();
 
         Barrier::new(vec)
     }
@@ -69,7 +64,7 @@ impl Select {
     pub fn try_next(&mut self) -> Option<Pulse> {
         let mut guard = self.inner.lock().unwrap();
         if let Some(x) = guard.ready.pop() {
-            return Some(self.pulses.remove(&x).unwrap())
+            return Some(self.pulses.remove(&x).map(|x| x.disarm()).unwrap())
         }
         None
     }
@@ -92,7 +87,7 @@ impl Iterator for Select {
             let pulse = {
                 let mut guard = self.inner.lock().unwrap();
                 if let Some(x) = guard.ready.pop() {
-                    return Some(self.pulses.remove(&x).unwrap())
+                    return Some(self.pulses.remove(&x).map(|x| x.disarm()).unwrap());
                 }
                 let (pulse, t) = Pulse::new();
                 guard.trigger = Some(t);

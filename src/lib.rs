@@ -5,6 +5,7 @@ extern crate atom;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::mem;
+use std::ops::Deref;
 use atom::{Atom, GetNextMut};
 
 use std::boxed::FnBox;
@@ -78,6 +79,10 @@ impl Waiting {
                 Wake::Callback(cb) => cb()
             }
         }
+    }
+
+    fn id(&self) -> usize {
+        unsafe { mem::transmute(self) }
     }
 
     fn thread() -> Box<Waiting> {
@@ -169,19 +174,26 @@ impl Trigger {
 
 unsafe impl Send for Pulse {}
 
-pub struct Pulse(*mut Inner);
+pub struct Pulse {
+    inner: *mut Inner
+}
+
+pub struct ArmedPulse {
+    pulse: Pulse,
+    id: usize
+}
 
 impl Clone for Pulse {
     fn clone(&self) -> Pulse {
         self.inner().state.fetch_add(1, Ordering::Relaxed);
-        Pulse(self.0)   
+        Pulse { inner: self.inner }
     }
 }
 
 impl Drop for Pulse {
     fn drop(&mut self) {
         let flag = self.inner().state.fetch_sub(1, Ordering::Relaxed);
-        delete_inner(flag, self.0);
+        delete_inner(flag, self.inner);
     }
 }
 
@@ -194,15 +206,17 @@ impl Pulse {
 
         let inner = unsafe {mem::transmute(inner)};
 
-        (Pulse(inner),
-         Trigger{
+        (Pulse {
+            inner: inner
+         },
+         Trigger {
             inner: inner,
             pulsed: false
         })
     }
 
     fn inner(&self) -> &Inner {
-        unsafe { mem::transmute(self.0) }
+        unsafe { mem::transmute(self.inner) }
     }
 
     // Read out the state of the Pulse
@@ -221,8 +235,9 @@ impl Pulse {
         (state & REF_COUNT) != 1 || (state & TX_FLAGS) == 0
     }
 
-    /// Arm a pulse to wake 
-    fn arm(&self, waiter: Box<Waiting>) {
+    fn arm_ref(&self, waiter: Box<Waiting>) -> usize {
+        let id = waiter.id();
+
         self.inner().waiting.replace_and_set_next(
             waiter,
             Ordering::AcqRel
@@ -233,12 +248,19 @@ impl Pulse {
             if let Some(t) = self.inner().waiting.take(Ordering::Acquire) {
                 Waiting::trigger(t, self.id());
             }
-        }       
+        }
+        id
     }
 
-    /// Disarm a pulse
-    fn disarm(&self) {
-        self.inner().waiting.take(Ordering::Acquire);
+    fn disarm_ref(&self, id: usize) {}
+
+    /// Arm a pulse to wake 
+    fn arm(self, waiter: Box<Waiting>) -> ArmedPulse {
+        let id = self.arm_ref(waiter);
+        ArmedPulse {
+            id: id,
+            pulse: self
+        }
     }
 
     /// Wait for an pulse to be triggered
@@ -255,18 +277,16 @@ impl Pulse {
                 };
             }
 
-            self.arm(Waiting::thread());
-
+            let id = self.arm_ref(Waiting::thread());
             if self.is_pending() {
-                // wait for wake
                 thread::park();
             }
-            self.disarm();
+            self.disarm_ref(id);
         }
     }
 
     pub fn id(&self) -> usize {
-        unsafe { mem::transmute_copy(&self.0) }
+        unsafe { mem::transmute_copy(&self.inner) }
     }
 
     pub fn recycle(&self) -> Option<Trigger> {
@@ -275,7 +295,7 @@ impl Pulse {
         } else {
             self.inner().state.store(2, Ordering::Relaxed);
             Some(Trigger{
-                inner: self.0,
+                inner: self.inner,
                 pulsed: false,
             })
         }
@@ -288,3 +308,16 @@ impl Pulse {
 
 #[derive(Debug)]
 pub struct WaitError(usize);
+
+impl Deref for ArmedPulse {
+    type Target = Pulse;
+
+    fn deref(&self) -> &Pulse { &self.pulse }
+}
+
+impl ArmedPulse {
+    fn disarm(self) -> Pulse {
+        self.disarm_ref(self.id);
+        self.pulse
+    }
+}
