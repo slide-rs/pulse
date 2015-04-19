@@ -50,7 +50,7 @@ enum Wake {
 }
 
 impl Waiting {
-    fn trigger(s: Box<Self>, id: usize) {
+    fn wake(s: Box<Self>, id: usize) {
         let mut next = Some(s);
         while let Some(s) = next {
             // There must be a better way to do this...
@@ -65,14 +65,14 @@ impl Waiting {
                         guard.ready.push(id);
                         guard.trigger.take()
                     };
-                    trigger.map(|x| x.pulse());
+                    trigger.map(|x| x.trigger());
                 }
                 Wake::Barrier(barrier) => {
                     let count = barrier.0.count.fetch_sub(1, Ordering::Relaxed);
                     if count == 1 {
                         let mut guard = barrier.0.trigger.lock().unwrap();
                         if let Some(t) = guard.take() {
-                            t.pulse();
+                            t.trigger();
                         }
                     }
                 }
@@ -154,13 +154,13 @@ impl Trigger {
         let id = unsafe { mem::transmute(self.inner) };
         match self.inner().waiting.take(Ordering::Acquire) {
             None => (),
-            Some(v) => Waiting::trigger(v, id)
+            Some(v) => Waiting::wake(v, id)
         }
     }
 
     /// Trigger an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
-    pub fn pulse(mut self) {
+    pub fn trigger(mut self) {
         self.pulsed = true;
         self.set(PULSED);
         self.wake();
@@ -242,7 +242,7 @@ impl Pulse {
         // if armed fire now
         if !self.is_pending() {
             if let Some(t) = self.inner().waiting.take(Ordering::Acquire) {
-                Waiting::trigger(t, self.id());
+                Waiting::wake(t, self.id());
             }
         }
         id
@@ -324,7 +324,7 @@ impl Pulse {
 #[derive(Debug)]
 pub struct WaitError(usize);
 
-pub struct ArmedPulse {
+struct ArmedPulse {
     pulse: Pulse,
     id: usize
 }
@@ -342,7 +342,7 @@ impl ArmedPulse {
     }
 }
 
-pub struct ArmedPulseRef<'a> {
+struct ArmedPulseRef<'a> {
     pulse: &'a Pulse,
     id: usize
 }

@@ -8,7 +8,7 @@ fn select_one() {
     let (p, t) = Pulse::new();
     let mut select = Select::new();
     let id = select.add(p);
-    t.pulse();
+    t.trigger();
     let p = select.next().unwrap();
     assert_eq!(id, p.id());
 }
@@ -24,15 +24,15 @@ fn select_three() {
     let id1 = select.add(p1);
     let id2 = select.add(p2);
 
-    t0.pulse();
+    t0.trigger();
     let p = select.next().unwrap();
     assert_eq!(id0, p.id());
 
-    t1.pulse();
+    t1.trigger();
     let p = select.next().unwrap();
     assert_eq!(id1, p.id());
 
-    t2.pulse();
+    t2.trigger();
     let p = select.next().unwrap();
     assert_eq!(id2, p.id());
 
@@ -53,11 +53,11 @@ fn select_thread() {
 
     thread::spawn(move || {
         thread::sleep_ms(10);
-        t0.pulse();
+        t0.trigger();
         thread::sleep_ms(10);
-        t1.pulse();
+        t1.trigger();
         thread::sleep_ms(10);
-        t2.pulse();
+        t2.trigger();
     });
 
     let p = select.next().unwrap();
@@ -83,11 +83,11 @@ fn select_barrier() {
 
     thread::spawn(move || {
         thread::sleep_ms(10);
-        t0.pulse();
+        t0.trigger();
         thread::sleep_ms(10);
-        t1.pulse();
+        t1.trigger();
         thread::sleep_ms(10);
-        t2.pulse();
+        t2.trigger();
     });
 
     select.into_barrier().pulse().wait().unwrap();
@@ -96,7 +96,7 @@ fn select_barrier() {
 #[test]
 fn select_already_pulsed() {
     let (p0, t0) = Pulse::new();
-    t0.pulse();
+    t0.trigger();
 
     let mut select = Select::new();
     let id0 = select.add(p0);

@@ -7,7 +7,7 @@ use pulse::*;
 fn wait() {
     let (p, t) = Pulse::new();
     assert!(p.is_pending());
-    t.pulse();
+    t.trigger();
     assert!(!p.is_pending());
 }
 
@@ -15,7 +15,7 @@ fn wait() {
 fn wake_post() {
     let (p, t) = Pulse::new();
     assert!(p.is_pending());
-    t.pulse();
+    t.trigger();
     assert!(!p.is_pending());
     p.wait().unwrap();
 }
@@ -26,7 +26,7 @@ fn wake_thread_spawn() {
     assert!(p.is_pending());
     thread::spawn(|| {
         thread::sleep_ms(10);
-        t.pulse();
+        t.trigger();
     });
     assert!(p.is_pending());
     p.wait().unwrap();
@@ -56,11 +56,11 @@ fn dropped_thread() {
 fn recycle() {
     let (p, t) = Pulse::new();
     assert!(p.is_pending());
-    t.pulse();
+    t.trigger();
     assert!(!p.is_pending());
     let t = p.recycle().unwrap();
     assert!(p.is_pending());
-    t.pulse();
+    t.trigger();
     assert!(!p.is_pending());
 }
 
@@ -78,7 +78,7 @@ fn false_positive_wake() {
     thread::current().unpark();
     thread::spawn(|| {
         thread::sleep_ms(10);
-        t.pulse();
+        t.trigger();
     });
     p.wait().unwrap();
 }
@@ -92,7 +92,7 @@ fn clone() {
     assert!(p1.is_pending());
     assert_eq!(p0.id(), p1.id());
 
-    t.pulse();
+    t.trigger();
 
     assert!(!p0.is_pending());
     assert!(!p1.is_pending());
@@ -111,7 +111,7 @@ fn clone_recyle() {
     assert!(p1.is_pending());
     assert_eq!(p0.id(), p1.id());
 
-    t.pulse();
+    t.trigger();
 
     assert!(!p0.is_pending());
     assert!(!p1.is_pending());
@@ -135,7 +135,7 @@ fn clone_wait() {
     });
 
     thread::sleep_ms(10);
-    t.pulse();
+    t.trigger();
     t0.join().unwrap();
     t1.join().unwrap();
 }
@@ -148,7 +148,7 @@ fn barrier_reuse() {
         (0..20).map(|_| Barrier::new(vec![p.clone()]))
                .collect();
 
-    let pulses: Vec<Pulse> = barriers.into_iter().map(|b| {
+    let triggers: Vec<Pulse> = barriers.into_iter().map(|b| {
         let p = b.pulse();
         assert!(p.is_pending());
         b.take();
@@ -157,11 +157,11 @@ fn barrier_reuse() {
 
     assert!(p.is_pending());
     assert!(barrier.pulse().is_pending());
-    t.pulse();
+    t.trigger();
     assert!(!p.is_pending());
     assert!(!barrier.pulse().is_pending());
-    for p in pulses {
-        // These will all error out since the pulse
+    for p in triggers {
+        // These will all error out since the trigger
         // was destroyed;
         assert!(p.wait().is_err());
     }

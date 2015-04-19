@@ -39,7 +39,7 @@ impl Barrier {
     pub fn pulse(&self) -> Pulse {
         let (p, t) = Pulse::new();
         if self.inner.count.load(Ordering::Relaxed) == 0 {
-            t.pulse();
+            t.trigger();
         } else {
             let mut guard = self.inner.trigger.lock().unwrap();
             *guard = Some(t);

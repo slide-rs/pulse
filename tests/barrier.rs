@@ -18,11 +18,11 @@ fn using_vec() {
 
     let last_trigger = triggers.pop().unwrap();
     for t in triggers {
-        t.pulse();
+        t.trigger();
         assert!(pulse.is_pending());
     }
 
-    last_trigger.pulse();
+    last_trigger.trigger();
     assert!(!pulse.is_pending());
 }
 
@@ -72,7 +72,7 @@ fn using_threads() {
 
     thread::spawn(move || {
         for t in triggers {
-            t.pulse();
+            t.trigger();
         }
     });
 
@@ -96,11 +96,11 @@ fn dropped_barrier() {
 
     let last_trigger = triggers.pop().unwrap();
     for t in triggers {
-        t.pulse();
+        t.trigger();
         assert!(pulse.is_pending());
     }
 
-    last_trigger.pulse();
+    last_trigger.trigger();
     assert!(!pulse.is_pending());   
 }
 
@@ -114,6 +114,6 @@ fn barrier_clone() {
     thread::sleep_ms(10);
     let barrier = Barrier::new(vec![p]);
     drop(barrier.take());
-    t.pulse();
+    t.trigger();
     join.join().unwrap();
 }

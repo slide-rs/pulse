@@ -45,7 +45,7 @@ impl Select {
         if guard.ready.len() == 0 {
             guard.trigger = Some(t);
         } else {
-            t.pulse();
+            t.trigger();
         }
         pulse  
     }
