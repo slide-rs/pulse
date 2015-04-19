@@ -1,4 +1,3 @@
-
 extern crate pulse;
 
 use std::thread;
@@ -139,4 +138,31 @@ fn clone_wait() {
     t.pulse();
     t0.join().unwrap();
     t1.join().unwrap();
+}
+
+#[test]
+fn barrier_reuse() {
+    let (p, t) = Pulse::new();
+    let barrier = Barrier::new(vec![p.clone()]);
+    let barriers: Vec<Barrier> =
+        (0..20).map(|_| Barrier::new(vec![p.clone()]))
+               .collect();
+
+    let pulses: Vec<Pulse> = barriers.into_iter().map(|b| {
+        let p = b.pulse();
+        assert!(p.is_pending());
+        b.take();
+        p
+    }).collect();
+
+    assert!(p.is_pending());
+    assert!(barrier.pulse().is_pending());
+    t.pulse();
+    assert!(!p.is_pending());
+    assert!(!barrier.pulse().is_pending());
+    for p in pulses {
+        // These will all error out since the pulse
+        // was destroyed;
+        assert!(p.wait().is_err());
+    }
 }

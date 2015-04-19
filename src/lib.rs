@@ -178,11 +178,6 @@ pub struct Pulse {
     inner: *mut Inner
 }
 
-pub struct ArmedPulse {
-    pulse: Pulse,
-    id: usize
-}
-
 impl Clone for Pulse {
     fn clone(&self) -> Pulse {
         self.inner().state.fetch_add(1, Ordering::Relaxed);
@@ -224,7 +219,7 @@ impl Pulse {
         self.inner().state.load(Ordering::Relaxed)
     }
 
-    // Check to see if the pulse is pending or not
+    /// Check to see if the pulse is pending or not
     pub fn is_pending(&self) -> bool {
         self.state() & TX_FLAGS == 0
     }
@@ -235,7 +230,8 @@ impl Pulse {
         (state & REF_COUNT) != 1 || (state & TX_FLAGS) == 0
     }
 
-    fn arm_ref(&self, waiter: Box<Waiting>) -> usize {
+    /// Add a waiter to a waitlist
+    fn add_to_waitlist(&self, waiter: Box<Waiting>) -> usize {
         let id = waiter.id();
 
         self.inner().waiting.replace_and_set_next(
@@ -252,14 +248,33 @@ impl Pulse {
         id
     }
 
-    fn disarm_ref(&self, id: usize) {}
+    /// Remove Waiter with `id` from the waitlist
+    fn remove_from_waitlist(&self, id: usize) {
+        let mut wl = self.inner().waiting.take(Ordering::Acquire);
+        while let Some(mut w) = wl {
+            let next = w.next.take();
+            if w.id() != id {
+                self.add_to_waitlist(w);
+            }
+            wl = next;
+        }
+    }
 
     /// Arm a pulse to wake 
     fn arm(self, waiter: Box<Waiting>) -> ArmedPulse {
-        let id = self.arm_ref(waiter);
+        let id = self.add_to_waitlist(waiter);
         ArmedPulse {
             id: id,
             pulse: self
+        }
+    }
+
+    /// Arm a pulse that is only armed for 
+    fn arm_ref<'a>(&'a self, waiter: Box<Waiting>) -> ArmedPulseRef<'a> {
+        let id = self.add_to_waitlist(waiter);
+        ArmedPulseRef {
+            pulse: self,
+            id: id
         }
     }
 
@@ -277,11 +292,11 @@ impl Pulse {
                 };
             }
 
-            let id = self.arm_ref(Waiting::thread());
+            let p = self.arm_ref(Waiting::thread());
             if self.is_pending() {
                 thread::park();
             }
-            self.disarm_ref(id);
+            drop(p);
         }
     }
 
@@ -309,6 +324,11 @@ impl Pulse {
 #[derive(Debug)]
 pub struct WaitError(usize);
 
+pub struct ArmedPulse {
+    pulse: Pulse,
+    id: usize
+}
+
 impl Deref for ArmedPulse {
     type Target = Pulse;
 
@@ -317,7 +337,24 @@ impl Deref for ArmedPulse {
 
 impl ArmedPulse {
     fn disarm(self) -> Pulse {
-        self.disarm_ref(self.id);
+        self.remove_from_waitlist(self.id);
         self.pulse
+    }
+}
+
+pub struct ArmedPulseRef<'a> {
+    pulse: &'a Pulse,
+    id: usize
+}
+
+impl<'a> Deref for ArmedPulseRef<'a> {
+    type Target = Pulse;
+
+    fn deref(&self) -> &Pulse { &self.pulse }
+}
+
+impl<'a> Drop for ArmedPulseRef<'a> {
+    fn drop(&mut self) {
+        self.remove_from_waitlist(self.id);
     }
 }
