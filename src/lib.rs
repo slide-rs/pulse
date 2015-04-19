@@ -158,6 +158,24 @@ impl Drop for Trigger {
 }
 
 impl Trigger {
+    /// Create a Trigger from a usize. This is natrually
+    /// unsafe.
+    pub unsafe fn cast_from_usize(ptr: usize) -> Trigger {
+        Trigger {
+            inner: mem::transmute(ptr),
+            pulsed: false
+        }
+    }
+
+    /// Convert a trigger to a usize, This is unsafe
+    /// and it will kill your kittens if you are not carful
+    /// This is used for cases rare cases
+    pub unsafe fn cast_to_usize(self) -> usize {
+        let us = mem::transmute(self.inner);
+        mem::forget(self);
+        us
+    }
+
     fn inner(&self) -> &Inner {
         unsafe { mem::transmute(self.inner) }
     }

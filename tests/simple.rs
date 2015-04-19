@@ -182,3 +182,15 @@ fn barrier_reuse() {
         assert!(p.wait().is_err());
     }
 }
+
+#[test]
+fn cast_to_usize() {
+    let (p, t) = Pulse::new();
+
+    assert!(p.is_pending());
+    unsafe {
+        let us = t.cast_to_usize();
+        Trigger::cast_from_usize(us).trigger();
+    }
+    assert!(!p.is_pending());
+}
