@@ -36,7 +36,7 @@ mod barrier;
 /// and Waiting is Dropped
 struct Inner {
     state: AtomicUsize,
-    waiting: Atom<Waiting, Box<Waiting>>
+    waiting: Atom<Box<Waiting>>
 }
 
 // TODO 64bit sized, probably does not matter now
@@ -317,14 +317,14 @@ impl Signal {
     }
 }
 
-impl IntoRawPtr<Pulse> for Pulse {
-    unsafe fn into_raw(self) -> *mut Pulse {
+impl IntoRawPtr for Pulse {
+    unsafe fn into_raw(self) -> *mut () {
         mem::transmute(self.inner)
     }
 }
 
-impl FromRawPtr<Pulse> for Pulse {
-    unsafe fn from_raw(ptr: *mut Pulse) -> Pulse {
+impl FromRawPtr for Pulse {
+    unsafe fn from_raw(ptr: *mut ()) -> Pulse {
         Pulse { inner: mem::transmute(ptr) }
     }
 }
