@@ -27,16 +27,16 @@ fn using_vec() {
         triggers.push(t);
     }
 
-    let barrier = Barrier::new(pulses);
-    let pulse = barrier.pulse();
+    let mut barrier = Barrier::new(pulses);
+    let pulse = barrier.signal();
 
     let last_trigger = triggers.pop().unwrap();
     for t in triggers {
-        t.trigger();
+        t.pulse();
         assert!(pulse.is_pending());
     }
 
-    last_trigger.trigger();
+    last_trigger.pulse();
     assert!(!pulse.is_pending());
 }
 
@@ -52,22 +52,22 @@ fn using_slice() {
     }
 
     let barrier = Barrier::new(pulses);
-    let pulse = barrier.pulse();
+    let pulse = barrier.signal();
 
     let last_trigger = triggers.pop().unwrap();
     for t in triggers {
-        t.pulse();
+        t.signal();
         assert!(pulse.is_pending());
     }
 
-    last_trigger.pulse();
+    last_trigger.signal();
     assert!(!pulse.is_pending());
 }*/
 
 #[test]
 fn empty() {
-    let barrier = Barrier::new(Vec::new());
-    let pulse = barrier.pulse();
+    let mut barrier = Barrier::new(Vec::new());
+    let pulse = barrier.signal();
     assert!(!pulse.is_pending());
 }
 
@@ -81,12 +81,12 @@ fn using_threads() {
         triggers.push(t);
     }
 
-    let barrier = Barrier::new(pulses);
-    let pulse = barrier.pulse();
+    let mut barrier = Barrier::new(pulses);
+    let mut pulse = barrier.signal();
 
     thread::spawn(move || {
         for t in triggers {
-            t.trigger();
+            t.pulse();
         }
     });
 
@@ -104,30 +104,30 @@ fn dropped_barrier() {
     }
 
     let pulse = {
-        let barrier = Barrier::new(pulses);
-        barrier.pulse()
+        let mut barrier = Barrier::new(pulses);
+        barrier.signal()
     };
 
     let last_trigger = triggers.pop().unwrap();
     for t in triggers {
-        t.trigger();
+        t.pulse();
         assert!(pulse.is_pending());
     }
 
-    last_trigger.trigger();
+    last_trigger.pulse();
     assert!(!pulse.is_pending());   
 }
 
 #[test]
 fn barrier_clone() {
     let (p, t) = Signal::new();
-    let p1 = p.clone();
+    let mut p1 = p.clone();
     let join = thread::spawn(move || {
         p1.wait().unwrap();
     });
     thread::sleep_ms(10);
     let barrier = Barrier::new(vec![p]);
     drop(barrier.take());
-    t.trigger();
+    t.pulse();
     join.join().unwrap();
 }

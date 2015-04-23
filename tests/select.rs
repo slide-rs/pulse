@@ -23,7 +23,7 @@ fn select_one() {
     let (p, t) = Signal::new();
     let mut select = Select::new();
     let id = select.add(p);
-    t.trigger();
+    t.pulse();
     let p = select.next().unwrap();
     assert_eq!(id, p.id());
 }
@@ -39,15 +39,15 @@ fn select_three() {
     let id1 = select.add(p1);
     let id2 = select.add(p2);
 
-    t0.trigger();
+    t0.pulse();
     let p = select.next().unwrap();
     assert_eq!(id0, p.id());
 
-    t1.trigger();
+    t1.pulse();
     let p = select.next().unwrap();
     assert_eq!(id1, p.id());
 
-    t2.trigger();
+    t2.pulse();
     let p = select.next().unwrap();
     assert_eq!(id2, p.id());
 
@@ -68,11 +68,11 @@ fn select_thread() {
 
     thread::spawn(move || {
         thread::sleep_ms(10);
-        t0.trigger();
+        t0.pulse();
         thread::sleep_ms(10);
-        t1.trigger();
+        t1.pulse();
         thread::sleep_ms(10);
-        t2.trigger();
+        t2.pulse();
     });
 
     let p = select.next().unwrap();
@@ -98,20 +98,20 @@ fn select_barrier() {
 
     thread::spawn(move || {
         thread::sleep_ms(10);
-        t0.trigger();
+        t0.pulse();
         thread::sleep_ms(10);
-        t1.trigger();
+        t1.pulse();
         thread::sleep_ms(10);
-        t2.trigger();
+        t2.pulse();
     });
 
-    select.into_barrier().pulse().wait().unwrap();
+    select.into_barrier().signal().wait().unwrap();
 }
 
 #[test]
 fn select_already_pulsed() {
     let (p0, t0) = Signal::new();
-    t0.trigger();
+    t0.pulse();
 
     let mut select = Select::new();
     let id0 = select.add(p0);

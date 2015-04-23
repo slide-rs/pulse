@@ -81,14 +81,14 @@ impl Waiting {
                         guard.ready.push(id);
                         guard.trigger.take()
                     };
-                    trigger.map(|x| x.trigger());
+                    trigger.map(|x| x.pulse());
                 }
                 Wake::Barrier(barrier) => {
                     let count = barrier.0.count.fetch_sub(1, Ordering::Relaxed);
                     if count == 1 {
                         let mut guard = barrier.0.trigger.lock().unwrap();
                         if let Some(t) = guard.take() {
-                            t.trigger();
+                            t.pulse();
                         }
                     }
                 }
@@ -190,7 +190,7 @@ impl Pulse {
 
     /// Pulse an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
-    pub fn trigger(self) {
+    pub fn pulse(self) {
         self.set(PULSED);
         self.wake();
 
@@ -297,28 +297,6 @@ impl Signal {
         }
     }
 
-    /// Wait for an pulse to be triggered
-    ///
-    /// Panics if something else is waiting on this already
-    pub fn wait(&self) -> Result<(), WaitError> {
-        loop {
-            if !self.is_pending() {
-                let state = self.state();
-                return if (state & PULSED) == PULSED {
-                    Ok(())
-                } else {
-                    Err(WaitError(state))
-                };
-            }
-
-            let p = self.clone().arm(Waiting::thread());
-            if self.is_pending() {
-                thread::park();
-            }
-            drop(p);
-        }
-    }
-
     pub fn id(&self) -> usize {
         unsafe { mem::transmute_copy(&self.inner) }
     }
@@ -358,4 +336,38 @@ impl ArmedSignal {
         self.remove_from_waitlist(self.id);
         self.pulse
     }
+}
+
+
+/// allows an object to assert a wait signal
+pub trait WaitSignal {
+    /// Get a signal from a object
+    fn signal(&mut self) -> Signal;
+
+    /// Block the current thread until the object
+    /// assets a pulse.
+    fn wait(&mut self) -> Result<(), WaitError> {
+        let mut signal = self.signal();
+
+        loop {
+            if !signal.is_pending() {
+                let state = signal.state();
+                return if (state & PULSED) == PULSED {
+                    Ok(())
+                } else {
+                    Err(WaitError(state))
+                };
+            }
+
+            let p = signal.arm(Waiting::thread());
+            if p.is_pending() {
+                thread::park();
+            }
+            signal = p.disarm();
+        }
+    }
+}
+
+impl WaitSignal for Signal {
+    fn signal(&mut self) -> Signal { self.clone() }
 }

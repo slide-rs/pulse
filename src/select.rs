@@ -15,7 +15,7 @@
 
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use {Signal, ArmedSignal, Pulse, Waiting, Barrier};
+use {Signal, ArmedSignal, Pulse, Waiting, Barrier, WaitSignal};
 
 struct Inner {
     pub ready: Vec<usize>,
@@ -52,19 +52,6 @@ impl Select {
             .map(|x| x.disarm())
     }
 
-    /// Create a pulse that will trigger when something
-    /// is ready to be read from this Select
-    pub fn pulse(&mut self) -> Signal {
-        let (pulse, t) = Signal::new();
-        let mut guard = self.inner.lock().unwrap();
-        if guard.ready.len() == 0 {
-            guard.trigger = Some(t);
-        } else {
-            t.trigger();
-        }
-        pulse  
-    }
-
     pub fn into_barrier(self) -> Barrier {
         let vec: Vec<Signal> = 
             self.pulses
@@ -99,7 +86,7 @@ impl Iterator for Select {
                 return None;
             }
 
-            let pulse = {
+            let mut pulse = {
                 let mut guard = self.inner.lock().unwrap();
                 if let Some(x) = guard.ready.pop() {
                     return Some(self.pulses.remove(&x).map(|x| x.disarm()).unwrap());
@@ -110,5 +97,18 @@ impl Iterator for Select {
             };
             pulse.wait().unwrap();
         }
+    }
+}
+
+impl WaitSignal for Select {
+    fn signal(&mut self) -> Signal {
+        let (pulse, t) = Signal::new();
+        let mut guard = self.inner.lock().unwrap();
+        if guard.ready.len() == 0 {
+            guard.trigger = Some(t);
+        } else {
+            t.pulse();
+        }
+        pulse  
     }
 }

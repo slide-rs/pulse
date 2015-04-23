@@ -23,26 +23,26 @@ use pulse::*;
 fn wait() {
     let (p, t) = Signal::new();
     assert!(p.is_pending());
-    t.trigger();
+    t.pulse();
     assert!(!p.is_pending());
 }
 
 #[test]
 fn wake_post() {
-    let (p, t) = Signal::new();
+    let (mut p, t) = Signal::new();
     assert!(p.is_pending());
-    t.trigger();
+    t.pulse();
     assert!(!p.is_pending());
     p.wait().unwrap();
 }
 
 #[test]
 fn wake_thread_spawn() {
-    let (p, t) = Signal::new();
+    let (mut p, t) = Signal::new();
     assert!(p.is_pending());
     thread::spawn(|| {
         thread::sleep_ms(10);
-        t.trigger();
+        t.pulse();
     });
     assert!(p.is_pending());
     p.wait().unwrap();
@@ -52,7 +52,7 @@ fn wake_thread_spawn() {
 #[test]
 #[should_panic]
 fn dropped() {
-    let (p, t) = Signal::new();
+    let (mut p, t) = Signal::new();
     drop(t);
     p.wait().unwrap();
 }
@@ -60,7 +60,7 @@ fn dropped() {
 #[test]
 #[should_panic]
 fn dropped_thread() {
-    let (p, t) = Signal::new();
+    let (mut p, t) = Signal::new();
     thread::spawn(|| {
         thread::sleep_ms(10);
         drop(t);
@@ -72,11 +72,11 @@ fn dropped_thread() {
 fn recycle() {
     let (p, t) = Signal::new();
     assert!(p.is_pending());
-    t.trigger();
+    t.pulse();
     assert!(!p.is_pending());
     let t = p.recycle().unwrap();
     assert!(p.is_pending());
-    t.trigger();
+    t.pulse();
     assert!(!p.is_pending());
 }
 
@@ -90,11 +90,11 @@ fn recycle_panic() {
 
 #[test]
 fn false_positive_wake() {
-    let (p, t) = Signal::new();
+    let (mut p, t) = Signal::new();
     thread::current().unpark();
     thread::spawn(|| {
         thread::sleep_ms(10);
-        t.trigger();
+        t.pulse();
     });
     p.wait().unwrap();
 }
@@ -108,7 +108,7 @@ fn clone() {
     assert!(p1.is_pending());
     assert_eq!(p0.id(), p1.id());
 
-    t.trigger();
+    t.pulse();
 
     assert!(!p0.is_pending());
     assert!(!p1.is_pending());
@@ -127,7 +127,7 @@ fn clone_recyle() {
     assert!(p1.is_pending());
     assert_eq!(p0.id(), p1.id());
 
-    t.trigger();
+    t.pulse();
 
     assert!(!p0.is_pending());
     assert!(!p1.is_pending());
@@ -139,8 +139,8 @@ fn clone_recyle() {
 
 #[test]
 fn clone_wait() {
-    let (p0, t) = Signal::new();
-    let p1 = p0.clone();
+    let (mut p0, t) = Signal::new();
+    let mut p1 = p0.clone();
 
     let t0 = thread::spawn(move || {
         p0.wait().unwrap();
@@ -151,7 +151,7 @@ fn clone_wait() {
     });
 
     thread::sleep_ms(10);
-    t.trigger();
+    t.pulse();
     t0.join().unwrap();
     t1.join().unwrap();
 }
@@ -159,24 +159,24 @@ fn clone_wait() {
 #[test]
 fn barrier_reuse() {
     let (p, t) = Signal::new();
-    let barrier = Barrier::new(vec![p.clone()]);
+    let mut barrier = Barrier::new(vec![p.clone()]);
     let barriers: Vec<Barrier> =
         (0..20).map(|_| Barrier::new(vec![p.clone()]))
                .collect();
 
-    let triggers: Vec<Signal> = barriers.into_iter().map(|b| {
-        let p = b.pulse();
+    let triggers: Vec<Signal> = barriers.into_iter().map(|mut b| {
+        let p = b.signal();
         assert!(p.is_pending());
         b.take();
         p
     }).collect();
 
     assert!(p.is_pending());
-    assert!(barrier.pulse().is_pending());
-    t.trigger();
+    assert!(barrier.signal().is_pending());
+    t.pulse();
     assert!(!p.is_pending());
-    assert!(!barrier.pulse().is_pending());
-    for p in triggers {
+    assert!(!barrier.signal().is_pending());
+    for mut p in triggers {
         // These will all error out since the trigger
         // was destroyed;
         assert!(p.wait().is_err());
@@ -190,7 +190,7 @@ fn cast_to_usize() {
     assert!(p.is_pending());
     unsafe {
         let us = t.cast_to_usize();
-        Pulse::cast_from_usize(us).trigger();
+        Pulse::cast_from_usize(us).pulse();
     }
     assert!(!p.is_pending());
 }
