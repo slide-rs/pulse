@@ -303,15 +303,6 @@ impl Pulse {
         }
     }
 
-    /// Arm a pulse that is only armed for 
-    fn arm_ref<'a>(&'a self, waiter: Box<Waiting>) -> ArmedPulseRef<'a> {
-        let id = self.add_to_waitlist(waiter);
-        ArmedPulseRef {
-            pulse: self,
-            id: id
-        }
-    }
-
     /// Wait for an pulse to be triggered
     ///
     /// Panics if something else is waiting on this already
@@ -326,7 +317,7 @@ impl Pulse {
                 };
             }
 
-            let p = self.arm_ref(Waiting::thread());
+            let p = self.clone().arm(Waiting::thread());
             if self.is_pending() {
                 thread::park();
             }
@@ -373,22 +364,5 @@ impl ArmedPulse {
     fn disarm(self) -> Pulse {
         self.remove_from_waitlist(self.id);
         self.pulse
-    }
-}
-
-struct ArmedPulseRef<'a> {
-    pulse: &'a Pulse,
-    id: usize
-}
-
-impl<'a> Deref for ArmedPulseRef<'a> {
-    type Target = Pulse;
-
-    fn deref(&self) -> &Pulse { &self.pulse }
-}
-
-impl<'a> Drop for ArmedPulseRef<'a> {
-    fn drop(&mut self) {
-        self.remove_from_waitlist(self.id);
     }
 }
