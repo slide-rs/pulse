@@ -15,7 +15,7 @@
 
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use {Signal, ArmedSignal, Pulse, Waiting, Barrier, WaitSignal};
+use {Signal, ArmedSignal, Pulse, Waiting, Barrier, Signals};
 
 struct Inner {
     pub ready: Vec<usize>,
@@ -100,7 +100,7 @@ impl Iterator for Select {
     }
 }
 
-impl WaitSignal for Select {
+impl Signals for Select {
     fn signal(&mut self) -> Signal {
         let (pulse, t) = Signal::new();
         let mut guard = self.inner.lock().unwrap();

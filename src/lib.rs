@@ -340,7 +340,7 @@ impl ArmedSignal {
 
 
 /// allows an object to assert a wait signal
-pub trait WaitSignal {
+pub trait Signals {
     /// Get a signal from a object
     fn signal(&mut self) -> Signal;
 
@@ -368,6 +368,6 @@ pub trait WaitSignal {
     }
 }
 
-impl WaitSignal for Signal {
+impl Signals for Signal {
     fn signal(&mut self) -> Signal { self.clone() }
 }

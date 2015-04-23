@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::iter::IntoIterator;
 
-use {Pulse, Signal, ArmedSignal, Waiting, WaitSignal};
+use {Pulse, Signal, ArmedSignal, Waiting, Signals};
 
 struct Inner {
     pub count: AtomicUsize,
@@ -57,7 +57,7 @@ impl Barrier {
     }
 }
 
-impl WaitSignal for Barrier {
+impl Signals for Barrier {
     fn signal(&mut self) -> Signal {
         let (p, t) = Signal::new();
         if self.inner.count.load(Ordering::Relaxed) == 0 {
