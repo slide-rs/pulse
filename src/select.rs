@@ -15,18 +15,18 @@
 
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use {Pulse, ArmedPulse, Trigger, Waiting, Barrier};
+use {Signal, ArmedSignal, Pulse, Waiting, Barrier};
 
 struct Inner {
     pub ready: Vec<usize>,
-    pub trigger: Option<Trigger>
+    pub trigger: Option<Pulse>
 }
 
 pub struct Handle(pub Arc<Mutex<Inner>>);
 
 pub struct Select {
     inner: Arc<Mutex<Inner>>,
-    pulses: HashMap<usize, ArmedPulse>
+    pulses: HashMap<usize, ArmedSignal>
 }
 
 impl Select {
@@ -40,22 +40,22 @@ impl Select {
         }
     }
 
-    pub fn add(&mut self, pulse: Pulse) -> usize {
+    pub fn add(&mut self, pulse: Signal) -> usize {
         let id = pulse.id();
         let p = pulse.arm(Waiting::select(Handle(self.inner.clone())));
         self.pulses.insert(id, p);
         id
     }
 
-    pub fn remove(&mut self, id: usize) -> Option<Pulse> {
+    pub fn remove(&mut self, id: usize) -> Option<Signal> {
         self.pulses.remove(&id)
             .map(|x| x.disarm())
     }
 
     /// Create a pulse that will trigger when something
     /// is ready to be read from this Select
-    pub fn pulse(&mut self) -> Pulse {
-        let (pulse, t) = Pulse::new();
+    pub fn pulse(&mut self) -> Signal {
+        let (pulse, t) = Signal::new();
         let mut guard = self.inner.lock().unwrap();
         if guard.ready.len() == 0 {
             guard.trigger = Some(t);
@@ -66,7 +66,7 @@ impl Select {
     }
 
     pub fn into_barrier(self) -> Barrier {
-        let vec: Vec<Pulse> = 
+        let vec: Vec<Signal> = 
             self.pulses
                 .into_iter()
                 .map(|(_, p)| p.disarm())
@@ -76,7 +76,7 @@ impl Select {
     }
 
     /// None blocking next
-    pub fn try_next(&mut self) -> Option<Pulse> {
+    pub fn try_next(&mut self) -> Option<Signal> {
         let mut guard = self.inner.lock().unwrap();
         if let Some(x) = guard.ready.pop() {
             return Some(self.pulses.remove(&x).map(|x| x.disarm()).unwrap())
@@ -84,16 +84,16 @@ impl Select {
         None
     }
 
-    /// Get the number of Pulses being watched
+    /// Get the number of Signals being watched
     pub fn len(&self) -> usize {
         self.pulses.len()
     }
 }
 
 impl Iterator for Select {
-    type Item = Pulse;
+    type Item = Signal;
 
-    fn next(&mut self) -> Option<Pulse> {
+    fn next(&mut self) -> Option<Signal> {
         loop {
             if self.pulses.len() == 0 {
                 return None;
@@ -104,7 +104,7 @@ impl Iterator for Select {
                 if let Some(x) = guard.ready.pop() {
                     return Some(self.pulses.remove(&x).map(|x| x.disarm()).unwrap());
                 }
-                let (pulse, t) = Pulse::new();
+                let (pulse, t) = Signal::new();
                 guard.trigger = Some(t);
                 pulse
             };

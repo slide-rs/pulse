@@ -18,16 +18,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::iter::IntoIterator;
 
-use {Trigger, Pulse, ArmedPulse, Waiting};
+use {Pulse, Signal, ArmedSignal, Waiting};
 
 struct Inner {
     pub count: AtomicUsize,
-    pub trigger: Mutex<Option<Trigger>>
+    pub trigger: Mutex<Option<Pulse>>
 }
 
 pub struct Barrier {
     inner: Arc<Inner>,
-    pulses: Vec<ArmedPulse>
+    pulses: Vec<ArmedSignal>
 }
 
 pub struct Handle(pub Arc<Inner>);
@@ -35,13 +35,13 @@ pub struct Handle(pub Arc<Inner>);
 // This is dumb, I can't find a trait that gives me 
 // Mutable access to pulses as an array
 impl Barrier {
-    pub fn new(pulses: Vec<Pulse>) -> Barrier {
+    pub fn new(pulses: Vec<Signal>) -> Barrier {
         // count items
         let inner = Arc::new(Inner{
             count: AtomicUsize::new(pulses.len()),
             trigger: Mutex::new(None)
         });
-        let pulses: Vec<ArmedPulse> = 
+        let pulses: Vec<ArmedSignal> = 
             pulses.into_iter()
                   .map(|x| x.arm(Waiting::barrier(Handle(inner.clone()))))
                   .collect();
@@ -52,8 +52,8 @@ impl Barrier {
         }
     }
 
-    pub fn pulse(&self) -> Pulse {
-        let (p, t) = Pulse::new();
+    pub fn pulse(&self) -> Signal {
+        let (p, t) = Signal::new();
         if self.inner.count.load(Ordering::Relaxed) == 0 {
             t.trigger();
         } else {
@@ -63,7 +63,7 @@ impl Barrier {
         p
     }
 
-    pub fn take(self) -> Vec<Pulse> {
+    pub fn take(self) -> Vec<Signal> {
         self.pulses.into_iter().map(|x| x.disarm()).collect()
     }
 }

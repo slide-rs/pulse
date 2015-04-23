@@ -25,7 +25,7 @@ use pulse::*;
 
 #[bench]
 fn pulse_already_set(b: &mut Bencher) {
-    let (p, t) = Pulse::new();
+    let (p, t) = Signal::new();
     t.trigger();
 
     b.iter(|| {
@@ -36,7 +36,7 @@ fn pulse_already_set(b: &mut Bencher) {
 #[bench]
 fn pulse_create_and_set(b: &mut Bencher) {
     b.iter(|| {
-        let (p, t) = Pulse::new();
+        let (p, t) = Signal::new();
         t.trigger();
         p.wait().unwrap();
     });
@@ -44,7 +44,7 @@ fn pulse_create_and_set(b: &mut Bencher) {
 
 #[bench]
 fn pulse_set(b: &mut Bencher) {
-    let (p, _) = Pulse::new();
+    let (p, _) = Signal::new();
 
     b.iter(|| {
         let t = p.recycle().unwrap();
@@ -57,8 +57,7 @@ fn pulse_set(b: &mut Bencher) {
 fn mutex_lock_time(b: &mut Bencher) {
     let mutex = Mutex::new(7);
     b.iter(|| {
-        let guard = mutex.lock().unwrap();
-        
+        drop(mutex.lock().unwrap());
     });
 }
 

@@ -32,7 +32,7 @@ mod select;
 mod barrier;
 
 /// Drop rules
-/// This may be freed iff state is Pulsed | Dropped
+/// This may be freed iff state is Signald | Dropped
 /// and Waiting is Dropped
 struct Inner {
     state: AtomicUsize,
@@ -130,9 +130,9 @@ impl Waiting {
     }
 }
 
-unsafe impl Send for Trigger {}
+unsafe impl Send for Pulse {}
 
-pub struct Trigger {
+pub struct Pulse {
     inner: *mut Inner,
     pulsed: bool
 }
@@ -146,7 +146,7 @@ fn delete_inner(state: usize, inner: *mut Inner) {
     }
 }
 
-impl Drop for Trigger {
+impl Drop for Pulse {
     fn drop(&mut self) {
         if !self.pulsed {
             self.set(TX_DROP);
@@ -157,11 +157,11 @@ impl Drop for Trigger {
     }
 }
 
-impl Trigger {
-    /// Create a Trigger from a usize. This is natrually
+impl Pulse {
+    /// Create a Pulse from a usize. This is natrually
     /// unsafe.
-    pub unsafe fn cast_from_usize(ptr: usize) -> Trigger {
-        Trigger {
+    pub unsafe fn cast_from_usize(ptr: usize) -> Pulse {
+        Pulse {
             inner: mem::transmute(ptr),
             pulsed: false
         }
@@ -192,7 +192,7 @@ impl Trigger {
         }
     }
 
-    /// Trigger an pulse, this can only occure once
+    /// Pulse an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
     pub fn trigger(mut self) {
         self.pulsed = true;
@@ -206,28 +206,28 @@ impl Trigger {
 }
 
 
-unsafe impl Send for Pulse {}
+unsafe impl Send for Signal {}
 
-pub struct Pulse {
+pub struct Signal {
     inner: *mut Inner
 }
 
-impl Clone for Pulse {
-    fn clone(&self) -> Pulse {
+impl Clone for Signal {
+    fn clone(&self) -> Signal {
         self.inner().state.fetch_add(1, Ordering::Relaxed);
-        Pulse { inner: self.inner }
+        Signal { inner: self.inner }
     }
 }
 
-impl Drop for Pulse {
+impl Drop for Signal {
     fn drop(&mut self) {
         let flag = self.inner().state.fetch_sub(1, Ordering::Relaxed);
         delete_inner(flag, self.inner);
     }
 }
 
-impl Pulse {
-    pub fn new() -> (Pulse, Trigger) {
+impl Signal {
+    pub fn new() -> (Signal, Pulse) {
         let inner = Box::new(Inner {
             state: AtomicUsize::new(2),
             waiting: Atom::empty()
@@ -235,10 +235,10 @@ impl Pulse {
 
         let inner = unsafe {mem::transmute(inner)};
 
-        (Pulse {
+        (Signal {
             inner: inner
          },
-         Trigger {
+         Pulse {
             inner: inner,
             pulsed: false
         })
@@ -248,7 +248,7 @@ impl Pulse {
         unsafe { mem::transmute(self.inner) }
     }
 
-    // Read out the state of the Pulse
+    // Read out the state of the Signal
     fn state(&self) -> usize {
         self.inner().state.load(Ordering::Relaxed)
     }
@@ -295,9 +295,9 @@ impl Pulse {
     }
 
     /// Arm a pulse to wake 
-    fn arm(self, waiter: Box<Waiting>) -> ArmedPulse {
+    fn arm(self, waiter: Box<Waiting>) -> ArmedSignal {
         let id = self.add_to_waitlist(waiter);
-        ArmedPulse {
+        ArmedSignal {
             id: id,
             pulse: self
         }
@@ -329,12 +329,12 @@ impl Pulse {
         unsafe { mem::transmute_copy(&self.inner) }
     }
 
-    pub fn recycle(&self) -> Option<Trigger> {
+    pub fn recycle(&self) -> Option<Pulse> {
         if self.in_use() {
             None
         } else {
             self.inner().state.store(2, Ordering::Relaxed);
-            Some(Trigger{
+            Some(Pulse{
                 inner: self.inner,
                 pulsed: false,
             })
@@ -349,19 +349,19 @@ impl Pulse {
 #[derive(Debug)]
 pub struct WaitError(usize);
 
-struct ArmedPulse {
-    pulse: Pulse,
+struct ArmedSignal {
+    pulse: Signal,
     id: usize
 }
 
-impl Deref for ArmedPulse {
-    type Target = Pulse;
+impl Deref for ArmedSignal {
+    type Target = Signal;
 
-    fn deref(&self) -> &Pulse { &self.pulse }
+    fn deref(&self) -> &Signal { &self.pulse }
 }
 
-impl ArmedPulse {
-    fn disarm(self) -> Pulse {
+impl ArmedSignal {
+    fn disarm(self) -> Signal {
         self.remove_from_waitlist(self.id);
         self.pulse
     }

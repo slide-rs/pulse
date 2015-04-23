@@ -22,7 +22,7 @@ fn using_vec() {
     let mut pulses = Vec::new();
     let mut triggers = Vec::new();
     for _ in 0..8 {
-        let (p, t) = Pulse::new();
+        let (p, t) = Signal::new();
         pulses.push(p);
         triggers.push(t);
     }
@@ -46,7 +46,7 @@ fn using_slice() {
     let mut pulses = Vec::new();
     let mut triggers = Vec::new();
     for _ in 0..8 {
-        let (p, t) = Pulse::new();
+        let (p, t) = Signal::new();
         pulses.push(p);
         triggers.push(t);
     }
@@ -76,7 +76,7 @@ fn using_threads() {
     let mut pulses = Vec::new();
     let mut triggers = Vec::new();
     for _ in 0..8 {
-        let (p, t) = Pulse::new();
+        let (p, t) = Signal::new();
         pulses.push(p);
         triggers.push(t);
     }
@@ -98,7 +98,7 @@ fn dropped_barrier() {
     let mut pulses = Vec::new();
     let mut triggers = Vec::new();
     for _ in 0..8 {
-        let (p, t) = Pulse::new();
+        let (p, t) = Signal::new();
         pulses.push(p);
         triggers.push(t);
     }
@@ -120,7 +120,7 @@ fn dropped_barrier() {
 
 #[test]
 fn barrier_clone() {
-    let (p, t) = Pulse::new();
+    let (p, t) = Signal::new();
     let p1 = p.clone();
     let join = thread::spawn(move || {
         p1.wait().unwrap();

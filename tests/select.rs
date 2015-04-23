@@ -20,7 +20,7 @@ use pulse::*;
 
 #[test]
 fn select_one() {
-    let (p, t) = Pulse::new();
+    let (p, t) = Signal::new();
     let mut select = Select::new();
     let id = select.add(p);
     t.trigger();
@@ -30,9 +30,9 @@ fn select_one() {
 
 #[test]
 fn select_three() {
-    let (p0, t0) = Pulse::new();
-    let (p1, t1) = Pulse::new();
-    let (p2, t2) = Pulse::new();
+    let (p0, t0) = Signal::new();
+    let (p1, t1) = Signal::new();
+    let (p2, t2) = Signal::new();
 
     let mut select = Select::new();
     let id0 = select.add(p0);
@@ -57,9 +57,9 @@ fn select_three() {
 
 #[test]
 fn select_thread() {
-    let (p0, t0) = Pulse::new();
-    let (p1, t1) = Pulse::new();
-    let (p2, t2) = Pulse::new();
+    let (p0, t0) = Signal::new();
+    let (p1, t1) = Signal::new();
+    let (p2, t2) = Signal::new();
 
     let mut select = Select::new();
     let id0 = select.add(p0);
@@ -87,9 +87,9 @@ fn select_thread() {
 
 #[test]
 fn select_barrier() {
-    let (p0, t0) = Pulse::new();
-    let (p1, t1) = Pulse::new();
-    let (p2, t2) = Pulse::new();
+    let (p0, t0) = Signal::new();
+    let (p1, t1) = Signal::new();
+    let (p2, t2) = Signal::new();
 
     let mut select = Select::new();
     let _ = select.add(p0);
@@ -110,7 +110,7 @@ fn select_barrier() {
 
 #[test]
 fn select_already_pulsed() {
-    let (p0, t0) = Pulse::new();
+    let (p0, t0) = Signal::new();
     t0.trigger();
 
     let mut select = Select::new();
