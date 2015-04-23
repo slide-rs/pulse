@@ -133,8 +133,7 @@ impl Waiting {
 unsafe impl Send for Pulse {}
 
 pub struct Pulse {
-    inner: *mut Inner,
-    pulsed: bool
+    inner: *mut Inner
 }
 
 fn delete_inner(state: usize, inner: *mut Inner) {
@@ -148,10 +147,8 @@ fn delete_inner(state: usize, inner: *mut Inner) {
 
 impl Drop for Pulse {
     fn drop(&mut self) {
-        if !self.pulsed {
-            self.set(TX_DROP);
-            self.wake();
-        }
+        self.set(TX_DROP);
+        self.wake();
         let state = self.inner().state.fetch_sub(1, Ordering::Relaxed);
         delete_inner(state, self.inner)
     }
@@ -162,8 +159,7 @@ impl Pulse {
     /// unsafe.
     pub unsafe fn cast_from_usize(ptr: usize) -> Pulse {
         Pulse {
-            inner: mem::transmute(ptr),
-            pulsed: false
+            inner: mem::transmute(ptr)
         }
     }
 
@@ -194,8 +190,7 @@ impl Pulse {
 
     /// Pulse an pulse, this can only occure once
     /// Returns true if this triggering triggered the pulse
-    pub fn trigger(mut self) {
-        self.pulsed = true;
+    pub fn trigger(self) {
         self.set(PULSED);
         self.wake();
 
@@ -240,7 +235,6 @@ impl Signal {
          },
          Pulse {
             inner: inner,
-            pulsed: false
         })
     }
 
@@ -336,7 +330,6 @@ impl Signal {
             self.inner().state.store(2, Ordering::Relaxed);
             Some(Pulse{
                 inner: self.inner,
-                pulsed: false,
             })
         }
     }
