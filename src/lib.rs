@@ -18,11 +18,11 @@
 
 extern crate atom;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize};
 use std::thread;
 use std::mem;
 use std::ops::Deref;
-use atom::{Atom, GetNextMut};
+use atom::*;
 
 use std::boxed::FnBox;
 
@@ -314,6 +314,18 @@ impl Signal {
 
     pub fn on_complete<F>(self, f: F) where F: FnOnce() + Send + 'static {
         self.arm(Waiting::callback(Box::new(f)));
+    }
+}
+
+impl IntoRawPtr<Pulse> for Pulse {
+    unsafe fn into_raw(self) -> *mut Pulse {
+        mem::transmute(self.inner)
+    }
+}
+
+impl FromRawPtr<Pulse> for Pulse {
+    unsafe fn from_raw(ptr: *mut Pulse) -> Pulse {
+        Pulse { inner: mem::transmute(ptr) }
     }
 }
 
