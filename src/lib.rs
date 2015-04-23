@@ -319,7 +319,9 @@ impl Signal {
 
 impl IntoRawPtr for Pulse {
     unsafe fn into_raw(self) -> *mut () {
-        mem::transmute(self.inner)
+        let inner = self.inner;
+        mem::forget(self);
+        mem::transmute(inner)
     }
 }
 

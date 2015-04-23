@@ -15,9 +15,11 @@
 
 
 extern crate pulse;
+extern crate atom;
 
 use std::thread;
 use pulse::*;
+use atom::*;
 
 #[test]
 fn wait() {
@@ -193,4 +195,17 @@ fn cast_to_usize() {
         Pulse::cast_from_usize(us).pulse();
     }
     assert!(!p.is_pending());
+}
+
+#[test]
+fn into_raw() {
+    let (mut p, t) = Signal::new();
+
+    assert!(p.is_pending());
+    unsafe {
+        let us = t.into_raw();
+        let t: Pulse = FromRawPtr::from_raw(us);
+        t.pulse();
+    }
+    assert!(p.wait().is_ok());
 }
