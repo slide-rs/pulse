@@ -14,27 +14,27 @@ what threads have been woken and when.
 
 ```rust
 // Create a pulse & its trigger
-let (pulse, trigger) = Pulse::new();
+let (mut signal, pulse) = Signal::new();
 
 thread::spawn(move || {
-	trigger.trigger();
+	pulse.pulse();
 });
 
 // Wait here until the pulse has been triggered
-pulse.wait().unwrap();
+signal.wait().unwrap();
 ```
 
 ## Primitives
 
-### Pulse
+### Signal
 
 The basic building block, a set only once flag. It supports cloning
-so multiple threads/blocks can wait on a single `Pulse` if you need to.
+so multiple threads/blocks can wait on a single `Signal` if you need to.
 
-### Trigger
+### Pulse
 
-The setting side of a `Pulse`. A trigger cannot be cloned, and may only
-exist in one place in the system. As part of the triggering process the `Trigger`
+The setting side of a `Signal`. A trigger cannot be cloned, and may only
+exist in one place in the system. As part of the triggering process the `Signal`
 is moved and dropped. So it is impossible to accidentally fire it twice.
 
 ### Select
