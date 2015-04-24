@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicUsize};
 use std::thread;
 use std::mem;
 use std::ops::Deref;
+use std::sync::atomic::Ordering;
 use atom::*;
 
 use std::boxed::FnBox;
