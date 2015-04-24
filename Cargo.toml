@@ -6,5 +6,5 @@ license = "Apache-2.0"
 description = "A library for async wake signals"
 homepage = "https://github.com/csherratt/pulse"
 
-[dependencies]
-atom = "*"
+[dependencies.atom]
+git = "https://github.com/csherratt/atom"

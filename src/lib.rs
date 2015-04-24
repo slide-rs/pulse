@@ -183,7 +183,7 @@ impl Pulse {
 
     fn wake(&self) {
         let id = unsafe { mem::transmute(self.inner) };
-        match self.inner().waiting.take(Ordering::Acquire) {
+        match self.inner().waiting.take() {
             None => (),
             Some(v) => Waiting::wake(v, id)
         }
@@ -239,16 +239,19 @@ impl Signal {
         })
     }
 
+    #[inline]
     fn inner(&self) -> &Inner {
         unsafe { mem::transmute(self.inner) }
     }
 
     // Read out the state of the Signal
+    #[inline]
     fn state(&self) -> usize {
         self.inner().state.load(Ordering::Relaxed)
     }
 
     /// Check to see if the pulse is pending or not
+    #[inline]
     pub fn is_pending(&self) -> bool {
         self.state() & TX_FLAGS == 0
     }
@@ -263,14 +266,11 @@ impl Signal {
     fn add_to_waitlist(&self, waiter: Box<Waiting>) -> usize {
         let id = waiter.id();
 
-        self.inner().waiting.replace_and_set_next(
-            waiter,
-            Ordering::AcqRel
-        );
+        self.inner().waiting.replace_and_set_next(waiter);
 
         // if armed fire now
         if !self.is_pending() {
-            if let Some(t) = self.inner().waiting.take(Ordering::Acquire) {
+            if let Some(t) = self.inner().waiting.take() {
                 Waiting::wake(t, self.id());
             }
         }
@@ -279,7 +279,7 @@ impl Signal {
 
     /// Remove Waiter with `id` from the waitlist
     fn remove_from_waitlist(&self, id: usize) {
-        let mut wl = self.inner().waiting.take(Ordering::Acquire);
+        let mut wl = self.inner().waiting.take();
         while let Some(mut w) = wl {
             let next = w.next.take();
             if w.id() != id {
@@ -315,6 +315,44 @@ impl Signal {
 
     pub fn on_complete<F>(self, f: F) where F: FnOnce() + Send + 'static {
         self.arm(Waiting::callback(Box::new(f)));
+    }
+
+    // The slow inner path if the pending check fails
+    // this allows the fast already set pending check to be inlined
+    // and the slower loop based check (here) to run now
+    fn wait_slow(&mut self) -> Result<(), WaitError> {
+        loop {
+            let id = self.add_to_waitlist(Waiting::thread());
+            if self.is_pending() {
+                thread::park();
+            }
+            self.remove_from_waitlist(id);
+
+            if !self.is_pending() {
+                let state = self.state();
+                return if (state & PULSED) == PULSED {
+                    Ok(())
+                } else {
+                    Err(WaitError(state))
+                };
+            }
+        }
+    }
+
+    /// Block the current thread until the object
+    /// assets a pulse.
+    #[inline]
+    pub fn wait(&mut self) -> Result<(), WaitError> {
+        if !self.is_pending() {
+            let state = self.state();
+            return if (state & PULSED) == PULSED {
+                Ok(())
+            } else {
+                Err(WaitError(state))
+            };
+        } else {
+            self.wait_slow()
+        }
     }
 }
 
@@ -381,8 +419,4 @@ pub trait Signals {
             signal = p.disarm();
         }
     }
-}
-
-impl Signals for Signal {
-    fn signal(&mut self) -> Signal { self.clone() }
 }
