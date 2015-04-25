@@ -139,6 +139,9 @@ impl<T> SelectMap<T> {
             (x, self.items.remove(&id).unwrap())
         })
     }
+
+    /// Get the number of items in teh Select
+    pub fn len(&self) -> usize { self.items.len() }
 }
 
 impl<T> Iterator for SelectMap<T> {
