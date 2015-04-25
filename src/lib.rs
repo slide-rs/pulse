@@ -27,7 +27,7 @@ use atom::*;
 
 use std::boxed::FnBox;
 
-pub use select::Select;
+pub use select::{Select, SelectMap};
 pub use barrier::Barrier;
 mod select;
 mod barrier;

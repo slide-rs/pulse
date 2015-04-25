@@ -112,3 +112,48 @@ impl Signals for Select {
         pulse  
     }
 }
+
+
+pub struct SelectMap<T> {
+    select: Select,
+    items: HashMap<usize, T>
+}
+
+impl<T> SelectMap<T> {
+    pub fn new() -> SelectMap<T> {
+        SelectMap {
+            select: Select::new(),
+            items: HashMap::new()
+        }
+    }
+
+    pub fn add(&mut self, pulse: Signal, value: T) {
+        let id = self.select.add(pulse);
+        self.items.insert(id, value);
+    }
+
+    /// None blocking next
+    pub fn try_next(&mut self) -> Option<(Signal, T)> {
+        self.select.try_next().map(|x| {
+            let id = x.id();
+            (x, self.items.remove(&id).unwrap())
+        })
+    }
+}
+
+impl<T> Iterator for SelectMap<T> {
+    type Item = (Signal, T);
+
+    fn next(&mut self) -> Option<(Signal, T)> {
+        self.select.next().map(|x| {
+            let id = x.id();
+            (x, self.items.remove(&id).unwrap())      
+        })
+    }
+}
+
+impl<T> Signals for SelectMap<T> {
+    fn signal(&mut self) -> Signal {
+        self.select.signal()
+    }
+}
