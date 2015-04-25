@@ -209,3 +209,12 @@ fn into_raw() {
     }
     assert!(p.wait().is_ok());
 }
+
+#[test]
+fn test_timeout() {
+    let (mut s, p) = Signal::new();
+
+    assert_eq!(s.wait_timeout_ms(25), Err(TimeoutError::Timeout));
+    p.pulse();
+    assert_eq!(s.wait_timeout_ms(25), Ok(()));
+}

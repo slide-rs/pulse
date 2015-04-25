@@ -12,20 +12,17 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 
-
-
-#![feature(core)]
-
 extern crate atom;
+extern crate time;
 
 use std::sync::atomic::{AtomicUsize};
 use std::thread;
 use std::mem;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
-use atom::*;
 
-use std::boxed::FnBox;
+use atom::*;
+use time::precise_time_s;
 
 pub use select::{Select, SelectMap};
 pub use barrier::Barrier;
@@ -62,8 +59,7 @@ impl GetNextMut for Box<Waiting> {
 enum Wake {
     Thread(thread::Thread),
     Select(select::Handle),
-    Barrier(barrier::Handle),
-    Callback(Box<FnBox() + Send>)
+    Barrier(barrier::Handle)
 }
 
 impl Waiting {
@@ -93,7 +89,6 @@ impl Waiting {
                         }
                     }
                 }
-                Wake::Callback(cb) => cb()
             }
         }
     }
@@ -120,13 +115,6 @@ impl Waiting {
         Box::new(Waiting{
             next: None,
             wake: Wake::Barrier(handle)
-        })
-    }
-
-    fn callback(f: Box<FnBox() + Send>) ->Box<Waiting> {
-        Box::new(Waiting{
-            next: None,
-            wake: Wake::Callback(f)
         })
     }
 }
@@ -313,10 +301,6 @@ impl Signal {
         }
     }
 
-    pub fn on_complete<F>(self, f: F) where F: FnOnce() + Send + 'static {
-        self.arm(Waiting::callback(Box::new(f)));
-    }
-
     // The slow inner path if the pending check fails
     // this allows the fast already set pending check to be inlined
     // and the slower loop based check (here) to run now
@@ -354,6 +338,34 @@ impl Signal {
             self.wait_slow()
         }
     }
+
+    /// Block until either the pulse is sent, or
+    /// the timeout is reached
+    pub fn wait_timeout_ms(&mut self, ms: u32) -> Result<(), TimeoutError> {
+        let mut now = (precise_time_s() * 1000.) as u64;
+        let end = now + ms as u64;
+
+        loop {
+            let id = self.add_to_waitlist(Waiting::thread());
+            if self.is_pending() {
+                now = (precise_time_s() * 1000.) as u64;
+                if now > end {
+                    return Err(TimeoutError::Timeout)
+                }
+                thread::park_timeout_ms((end - now) as u32);
+            }
+            self.remove_from_waitlist(id);
+
+            if !self.is_pending() {
+                let state = self.state();
+                return if (state & PULSED) == PULSED {
+                    Ok(())
+                } else {
+                    Err(TimeoutError::Error(WaitError(state)))
+                };
+            }
+        }     
+    }
 }
 
 impl IntoRawPtr for Pulse {
@@ -370,8 +382,14 @@ impl FromRawPtr for Pulse {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct WaitError(usize);
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum TimeoutError {
+    Error(WaitError),
+    Timeout
+}
 
 struct ArmedSignal {
     pulse: Signal,
@@ -401,22 +419,13 @@ pub trait Signals {
     /// assets a pulse.
     fn wait(&mut self) -> Result<(), WaitError> {
         let mut signal = self.signal();
+        signal.wait()
+    }
 
-        loop {
-            if !signal.is_pending() {
-                let state = signal.state();
-                return if (state & PULSED) == PULSED {
-                    Ok(())
-                } else {
-                    Err(WaitError(state))
-                };
-            }
-
-            let p = signal.arm(Waiting::thread());
-            if p.is_pending() {
-                thread::park();
-            }
-            signal = p.disarm();
-        }
+    /// Block the current thread until the object
+    /// assets a pulse. Or until the timeout has been asserted.
+    fn wait_timeout_ms(&mut self, ms: u32) -> Result<(), TimeoutError> {
+        let mut signal = self.signal();
+        signal.wait_timeout_ms(ms)
     }
 }

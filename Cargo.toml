@@ -1,10 +1,11 @@
 [package]
 name = "pulse"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Colin Sherratt <colin.sherratt@gmail.com>"]
 license = "Apache-2.0"
 description = "A library for async wake signals"
 homepage = "https://github.com/csherratt/pulse"
 
-[dependencies.atom]
-git = "https://github.com/csherratt/atom"
+[dependencies]
+atom = "*"
+time = "*"
