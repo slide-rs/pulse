@@ -480,4 +480,20 @@ impl Scheduler for ThreadScheduler {
     }
 }
 
+/// The TLS scheduler
 thread_local!(static SCHED: RefCell<Box<Scheduler>> = RefCell::new(Box::new(ThreadScheduler)));
+
+/// Replace the current Scheduler with your own supplied scheduler.
+/// all `wait()` commands will be run through this scheduler now.
+///
+/// This will return the current TLS scheduler, which may be useful
+/// to restore it later.
+pub fn swap_scheduler(mut sched: Box<Scheduler>) -> Box<Scheduler> {
+    use std::mem;
+
+    SCHED.with(|s| {
+        mem::swap(&mut *s.borrow_mut(), &mut sched);
+    });
+
+    sched
+}
