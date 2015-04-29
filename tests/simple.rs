@@ -47,7 +47,7 @@ fn wake_thread_spawn() {
         t.pulse();
     });
     assert!(p.is_pending());
-    p.wait().unwrap();
+    p.clone().wait().unwrap();
     assert!(!p.is_pending());
 }
 
@@ -68,26 +68,6 @@ fn dropped_thread() {
         drop(t);
     });
     p.wait().unwrap();
-}
-
-#[test]
-fn recycle() {
-    let (p, t) = Signal::new();
-    assert!(p.is_pending());
-    t.pulse();
-    assert!(!p.is_pending());
-    let t = p.recycle().unwrap();
-    assert!(p.is_pending());
-    t.pulse();
-    assert!(!p.is_pending());
-}
-
-#[test]
-#[should_panic]
-fn recycle_panic() {
-    let (p, t) = Signal::new();
-    let _ = p.recycle().unwrap();
-    drop(t);
 }
 
 #[test]
@@ -118,25 +98,6 @@ fn clone() {
     drop(p0);
     assert!(!p1.is_pending());
     drop(p1);
-}
-
-#[test]
-fn clone_recyle() {
-    let (p0, t) = Signal::new();
-    let p1 = p0.clone();
-
-    assert!(p0.is_pending());
-    assert!(p1.is_pending());
-    assert_eq!(p0.id(), p1.id());
-
-    t.pulse();
-
-    assert!(!p0.is_pending());
-    assert!(!p1.is_pending());
-    assert!(p0.recycle().is_none());
-    assert!(!p1.is_pending());
-    drop(p0);
-    assert!(p1.recycle().is_some());
 }
 
 #[test]

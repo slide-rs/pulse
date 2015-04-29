@@ -29,7 +29,7 @@ fn pulse_already_set(b: &mut Bencher) {
     t.pulse();
 
     b.iter(|| {
-        p.wait().unwrap();
+        p.is_pending();
     });
 }
 
@@ -42,7 +42,7 @@ fn pulse_create_and_set(b: &mut Bencher) {
     });
 }
 
-#[bench]
+/*#[bench]
 fn pulse_set(b: &mut Bencher) {
     let (mut p, _) = Signal::new();
 
@@ -51,7 +51,7 @@ fn pulse_set(b: &mut Bencher) {
         t.pulse();
         p.wait().unwrap();
     });
-}
+}*/
 
 #[bench]
 fn mutex_lock_time(b: &mut Bencher) {

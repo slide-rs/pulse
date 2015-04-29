@@ -225,6 +225,7 @@ impl Clone for Signal {
 }
 
 impl Drop for Signal {
+    #[inline]
     fn drop(&mut self) {
         let flag = self.inner().state.fetch_sub(1, Ordering::Relaxed);
         delete_inner(flag, self.inner);
@@ -249,6 +250,18 @@ impl Signal {
         })
     }
 
+    /// Create a signal that is already pulsed
+    pub fn pulsed() -> Signal {
+        let inner = Box::new(Inner {
+            state: AtomicUsize::new(1 | PULSED),
+            waiting: Atom::empty()
+        });
+
+        let inner = unsafe {mem::transmute(inner)};
+
+        Signal { inner: inner }
+    }
+
     #[inline]
     fn inner(&self) -> &Inner {
         unsafe { mem::transmute(self.inner) }
@@ -264,12 +277,6 @@ impl Signal {
     #[inline]
     pub fn is_pending(&self) -> bool {
         self.state() & TX_FLAGS == 0
-    }
-
-    // Check to see if the pulse is pending or not
-    fn in_use(&self) -> bool {
-        let state = self.state();
-        (state & REF_COUNT) != 1 || (state & TX_FLAGS) == 0
     }
 
     /// Add a waiter to a waitlist
@@ -314,27 +321,10 @@ impl Signal {
         unsafe { mem::transmute_copy(&self.inner) }
     }
 
-    /// iff the `Signal` has been Pulsed, or Errored out and this is the only
-    /// cloned copy of the Signal in the system. You may `recycle` the signal.
-    /// This will create a new `Pulse` that is associated with the `Siganl`
-    ///
-    /// This api was added for optimizations reasons, as it avoids allocations
-    /// of a new signal.
-    pub fn recycle(&self) -> Option<Pulse> {
-        if self.in_use() {
-            None
-        } else {
-            self.inner().state.store(2, Ordering::Relaxed);
-            Some(Pulse{
-                inner: self.inner,
-            })
-        }
-    }
-
     // The slow inner path if the pending check fails
     // this allows the fast already set pending check to be inlined
     // and the slower loop based check (here) to run now
-    fn wait_slow(&self) -> Result<(), WaitError> {
+    fn wait_slow(self) -> Result<(), WaitError> {
         loop {
             let id = self.add_to_waitlist(Waiting::thread());
             if self.is_pending() {
@@ -356,7 +346,7 @@ impl Signal {
     /// Block the current thread until a `pulse` is ready.
     /// This will block indefinably if the pulse never fires.
     #[inline]
-    pub fn wait(&self) -> Result<(), WaitError> {
+    pub fn wait(self) -> Result<(), WaitError> {
         if !self.is_pending() {
             let state = self.state();
             return if (state & PULSED) == PULSED {
@@ -444,7 +434,6 @@ impl ArmedSignal {
         self.pulse
     }
 }
-
 
 /// allows an object to assert a wait signal
 pub trait Signals {
