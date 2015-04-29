@@ -18,6 +18,7 @@ extern crate time;
 use std::sync::atomic::{AtomicUsize};
 use std::thread;
 use std::mem;
+use std::fmt;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 
@@ -129,6 +130,13 @@ pub struct Pulse {
     inner: *mut Inner
 }
 
+impl fmt::Debug for Pulse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let id: usize = unsafe { mem::transmute(self.inner) };
+        write!(f, "Pulse({:?})", id)
+    }
+}
+
 fn delete_inner(state: usize, inner: *mut Inner) {
     if state & REF_COUNT == 1 {
         let inner: Box<Inner> = unsafe {
@@ -201,6 +209,12 @@ unsafe impl Send for Signal {}
 /// without firing. This normally means a programming error of some sort.
 pub struct Signal {
     inner: *mut Inner
+}
+
+impl fmt::Debug for Signal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Signal(id={:?}, pending={:?})", self.id(), self.is_pending())
+    }
 }
 
 impl Clone for Signal {
