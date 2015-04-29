@@ -21,6 +21,7 @@ use std::mem;
 use std::fmt;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
+use std::cell::RefCell;
 
 use atom::*;
 use time::precise_time_s;
@@ -321,28 +322,6 @@ impl Signal {
         unsafe { mem::transmute_copy(&self.inner) }
     }
 
-    // The slow inner path if the pending check fails
-    // this allows the fast already set pending check to be inlined
-    // and the slower loop based check (here) to run now
-    fn wait_slow(self) -> Result<(), WaitError> {
-        loop {
-            let id = self.add_to_waitlist(Waiting::thread());
-            if self.is_pending() {
-                thread::park();
-            }
-            self.remove_from_waitlist(id);
-
-            if !self.is_pending() {
-                let state = self.state();
-                return if (state & PULSED) == PULSED {
-                    Ok(())
-                } else {
-                    Err(WaitError::Dropped)
-                };
-            }
-        }
-    }
-
     /// Block the current thread until a `pulse` is ready.
     /// This will block indefinably if the pulse never fires.
     #[inline]
@@ -355,35 +334,17 @@ impl Signal {
                 Err(WaitError::Dropped)
             };
         } else {
-            self.wait_slow()
+            SCHED.with(|sched| {
+                sched.borrow().wait(self)
+            })
         }
     }
 
     /// Block until either the pulse is sent, or the timeout is reached
-    pub fn wait_timeout_ms(&self, ms: u32) -> Result<(), TimeoutError> {
-        let mut now = (precise_time_s() * 1000.) as u64;
-        let end = now + ms as u64;
-
-        loop {
-            let id = self.add_to_waitlist(Waiting::thread());
-            if self.is_pending() {
-                now = (precise_time_s() * 1000.) as u64;
-                if now > end {
-                    return Err(TimeoutError::Timeout)
-                }
-                thread::park_timeout_ms((end - now) as u32);
-            }
-            self.remove_from_waitlist(id);
-
-            if !self.is_pending() {
-                let state = self.state();
-                return if (state & PULSED) == PULSED {
-                    Ok(())
-                } else {
-                    Err(TimeoutError::Error(WaitError::Dropped))
-                };
-            }
-        }     
+    pub fn wait_timeout_ms(self, ms: u32) -> Result<(), TimeoutError> {
+        SCHED.with(|sched| {
+            sched.borrow().wait_timeout_ms(self, ms)
+        })
     }
 }
 
@@ -454,3 +415,69 @@ pub trait Signals {
         signal.wait_timeout_ms(ms)
     }
 }
+
+/// This is the hook into the async wait methods provided
+/// by `pulse`. It is required for the user to override
+/// the current system scheduler.
+pub trait Scheduler {
+    /// Wait until the signal is made `ready` or `errored`
+    fn wait(&self, signal: Signal) -> Result<(), WaitError>;
+
+    /// Wait until the signal is made `ready` or `errored` or the
+    /// timeout has been reached.
+    fn wait_timeout_ms(&self, signal: Signal, timeout: u32) -> Result<(), TimeoutError>;
+}
+
+/// This is the `default` system scheduler that is used if no
+/// user provided scheduler is installed. It is very basic
+/// and will block the OS thread using `thread::park`
+pub struct ThreadScheduler;
+
+impl Scheduler for ThreadScheduler {
+    fn wait(&self, signal: Signal) -> Result<(), WaitError> {
+        loop {
+            let id = signal.add_to_waitlist(Waiting::thread());
+            if signal.is_pending() {
+                thread::park();
+            }
+            signal.remove_from_waitlist(id);
+
+            if !signal.is_pending() {
+                let state = signal.state();
+                return if (state & PULSED) == PULSED {
+                    Ok(())
+                } else {
+                    Err(WaitError::Dropped)
+                };
+            }
+        }
+    }
+
+    fn wait_timeout_ms(&self, signal: Signal, ms: u32) -> Result<(), TimeoutError> {
+        let mut now = (precise_time_s() * 1000.) as u64;
+        let end = now + ms as u64;
+
+        loop {
+            let id = signal.add_to_waitlist(Waiting::thread());
+            if signal.is_pending() {
+                now = (precise_time_s() * 1000.) as u64;
+                if now > end {
+                    return Err(TimeoutError::Timeout)
+                }
+                thread::park_timeout_ms((end - now) as u32);
+            }
+            signal.remove_from_waitlist(id);
+
+            if !signal.is_pending() {
+                let state = signal.state();
+                return if (state & PULSED) == PULSED {
+                    Ok(())
+                } else {
+                    Err(TimeoutError::Error(WaitError::Dropped))
+                };
+            }
+        }
+    }
+}
+
+thread_local!(static SCHED: RefCell<Box<Scheduler>> = RefCell::new(Box::new(ThreadScheduler)));

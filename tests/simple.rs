@@ -175,7 +175,7 @@ fn into_raw() {
 fn test_timeout() {
     let (s, p) = Signal::new();
 
-    assert_eq!(s.wait_timeout_ms(25), Err(TimeoutError::Timeout));
+    assert_eq!(s.clone().wait_timeout_ms(25), Err(TimeoutError::Timeout));
     p.pulse();
-    assert_eq!(s.wait_timeout_ms(25), Ok(()));
+    assert_eq!(s.clone().wait_timeout_ms(25), Ok(()));
 }
