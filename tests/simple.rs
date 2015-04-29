@@ -31,7 +31,7 @@ fn wait() {
 
 #[test]
 fn wake_post() {
-    let (mut p, t) = Signal::new();
+    let (p, t)  = Signal::new();
     assert!(p.is_pending());
     t.pulse();
     assert!(!p.is_pending());
@@ -40,7 +40,7 @@ fn wake_post() {
 
 #[test]
 fn wake_thread_spawn() {
-    let (mut p, t) = Signal::new();
+    let (p, t)  = Signal::new();
     assert!(p.is_pending());
     thread::spawn(|| {
         thread::sleep_ms(10);
@@ -54,7 +54,7 @@ fn wake_thread_spawn() {
 #[test]
 #[should_panic]
 fn dropped() {
-    let (mut p, t) = Signal::new();
+    let (p, t)  = Signal::new();
     drop(t);
     p.wait().unwrap();
 }
@@ -62,7 +62,7 @@ fn dropped() {
 #[test]
 #[should_panic]
 fn dropped_thread() {
-    let (mut p, t) = Signal::new();
+    let (p, t)  = Signal::new();
     thread::spawn(|| {
         thread::sleep_ms(10);
         drop(t);
@@ -92,7 +92,7 @@ fn recycle_panic() {
 
 #[test]
 fn false_positive_wake() {
-    let (mut p, t) = Signal::new();
+    let (p, t)  = Signal::new();
     thread::current().unpark();
     thread::spawn(|| {
         thread::sleep_ms(10);
@@ -141,8 +141,8 @@ fn clone_recyle() {
 
 #[test]
 fn clone_wait() {
-    let (mut p0, t) = Signal::new();
-    let mut p1 = p0.clone();
+    let (p0, t) = Signal::new();
+    let p1 = p0.clone();
 
     let t0 = thread::spawn(move || {
         p0.wait().unwrap();
@@ -161,12 +161,12 @@ fn clone_wait() {
 #[test]
 fn barrier_reuse() {
     let (p, t) = Signal::new();
-    let mut barrier = Barrier::new(vec![p.clone()]);
+    let barrier = Barrier::new(vec![p.clone()]);
     let barriers: Vec<Barrier> =
         (0..20).map(|_| Barrier::new(vec![p.clone()]))
                .collect();
 
-    let triggers: Vec<Signal> = barriers.into_iter().map(|mut b| {
+    let triggers: Vec<Signal> = barriers.into_iter().map(|b| {
         let p = b.signal();
         assert!(p.is_pending());
         b.take();
@@ -178,7 +178,7 @@ fn barrier_reuse() {
     t.pulse();
     assert!(!p.is_pending());
     assert!(!barrier.signal().is_pending());
-    for mut p in triggers {
+    for p in triggers {
         // These will all error out since the trigger
         // was destroyed;
         assert!(p.wait().is_err());
@@ -199,7 +199,7 @@ fn cast_to_usize() {
 
 #[test]
 fn into_raw() {
-    let (mut p, t) = Signal::new();
+    let (p, t)  = Signal::new();
 
     assert!(p.is_pending());
     unsafe {
@@ -212,7 +212,7 @@ fn into_raw() {
 
 #[test]
 fn test_timeout() {
-    let (mut s, p) = Signal::new();
+    let (s, p) = Signal::new();
 
     assert_eq!(s.wait_timeout_ms(25), Err(TimeoutError::Timeout));
     p.pulse();

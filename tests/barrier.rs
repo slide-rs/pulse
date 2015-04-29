@@ -20,18 +20,18 @@ use pulse::*;
 #[test]
 fn using_vec() {
     let mut pulses = Vec::new();
-    let mut triggers = Vec::new();
+    let mut signals = Vec::new();
     for _ in 0..8 {
         let (p, t) = Signal::new();
         pulses.push(p);
-        triggers.push(t);
+        signals.push(t);
     }
 
-    let mut barrier = Barrier::new(pulses);
+    let barrier = Barrier::new(pulses);
     let pulse = barrier.signal();
 
-    let last_trigger = triggers.pop().unwrap();
-    for t in triggers {
+    let last_trigger = signals.pop().unwrap();
+    for t in signals {
         t.pulse();
         assert!(pulse.is_pending());
     }
@@ -44,18 +44,18 @@ fn using_vec() {
 /*#[test]
 fn using_slice() {
     let mut pulses = Vec::new();
-    let mut triggers = Vec::new();
+    let mut signals = Vec::new();
     for _ in 0..8 {
         let (p, t) = Signal::new();
         pulses.push(p);
-        triggers.push(t);
+        signals.push(t);
     }
 
     let barrier = Barrier::new(pulses);
     let pulse = barrier.signal();
 
-    let last_trigger = triggers.pop().unwrap();
-    for t in triggers {
+    let last_trigger = signals.pop().unwrap();
+    for t in signals {
         t.signal();
         assert!(pulse.is_pending());
     }
@@ -66,7 +66,7 @@ fn using_slice() {
 
 #[test]
 fn empty() {
-    let mut barrier = Barrier::new(Vec::new());
+    let barrier = Barrier::new(Vec::new());
     let pulse = barrier.signal();
     assert!(!pulse.is_pending());
 }
@@ -74,18 +74,18 @@ fn empty() {
 #[test]
 fn using_threads() {
     let mut pulses = Vec::new();
-    let mut triggers = Vec::new();
+    let mut signals = Vec::new();
     for _ in 0..8 {
         let (p, t) = Signal::new();
         pulses.push(p);
-        triggers.push(t);
+        signals.push(t);
     }
 
-    let mut barrier = Barrier::new(pulses);
-    let mut pulse = barrier.signal();
+    let barrier = Barrier::new(pulses);
+    let pulse = barrier.signal();
 
     thread::spawn(move || {
-        for t in triggers {
+        for t in signals {
             t.pulse();
         }
     });
@@ -96,20 +96,20 @@ fn using_threads() {
 #[test]
 fn dropped_barrier() {
     let mut pulses = Vec::new();
-    let mut triggers = Vec::new();
+    let mut signals = Vec::new();
     for _ in 0..8 {
         let (p, t) = Signal::new();
         pulses.push(p);
-        triggers.push(t);
+        signals.push(t);
     }
 
     let pulse = {
-        let mut barrier = Barrier::new(pulses);
+        let barrier = Barrier::new(pulses);
         barrier.signal()
     };
 
-    let last_trigger = triggers.pop().unwrap();
-    for t in triggers {
+    let last_trigger = signals.pop().unwrap();
+    for t in signals {
         t.pulse();
         assert!(pulse.is_pending());
     }
@@ -121,7 +121,7 @@ fn dropped_barrier() {
 #[test]
 fn barrier_clone() {
     let (p, t) = Signal::new();
-    let mut p1 = p.clone();
+    let p1 = p.clone();
     let join = thread::spawn(move || {
         p1.wait().unwrap();
     });

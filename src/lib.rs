@@ -121,6 +121,10 @@ impl Waiting {
 
 unsafe impl Send for Pulse {}
 
+/// A `Pulse` is represents an unfired signal. It is the tx side of Signal
+/// A `Pulse` can only purpose it to be fired, and then it will be moved
+/// as to never allow it to fire again. `Dropping` a pulse will `pulse`
+/// The signal, but the signal will enter an error state.
 pub struct Pulse {
     inner: *mut Inner
 }
@@ -144,17 +148,15 @@ impl Drop for Pulse {
 }
 
 impl Pulse {
-    /// Create a Pulse from a usize. This is natrually
-    /// unsafe.
+    /// Create a Pulse from a usize. This is naturally unsafe.
     pub unsafe fn cast_from_usize(ptr: usize) -> Pulse {
         Pulse {
             inner: mem::transmute(ptr)
         }
     }
 
-    /// Convert a trigger to a usize, This is unsafe
-    /// and it will kill your kittens if you are not carful
-    /// This is used for cases rare cases
+    /// Convert a trigger to a `usize`, This is unsafe
+    /// and it will kill your kittens if you are not careful
     pub unsafe fn cast_to_usize(self) -> usize {
         let us = mem::transmute(self.inner);
         mem::forget(self);
@@ -177,8 +179,8 @@ impl Pulse {
         }
     }
 
-    /// Pulse an pulse, this can only occure once
-    /// Returns true if this triggering triggered the pulse
+    /// Pulse the `pulse` which will transition the `Signal` out from pending
+    /// to ready. This moves the pulse so that it can only be fired once.
     pub fn pulse(self) {
         self.set(PULSED);
         self.wake();
@@ -192,6 +194,11 @@ impl Pulse {
 
 unsafe impl Send for Signal {}
 
+/// A `Signal` represents listens for a `pulse` to occur in the system. A
+/// `Signal` has one of three states. Pending, Pulsed, or Errored. Pending
+/// means the pulse has not fired, but still exists. Pulsed meaning the 
+/// pulse has fired, and no longer exists. Errored means the pulse was dropped
+/// without firing. This normally means a programming error of some sort.
 pub struct Signal {
     inner: *mut Inner
 }
@@ -211,6 +218,7 @@ impl Drop for Signal {
 }
 
 impl Signal {
+    /// Create a Signal and a Pulse that are associated.
     pub fn new() -> (Signal, Pulse) {
         let inner = Box::new(Inner {
             state: AtomicUsize::new(2),
@@ -232,13 +240,13 @@ impl Signal {
         unsafe { mem::transmute(self.inner) }
     }
 
-    // Read out the state of the Signal
+    /// Read out the state of the Signal
     #[inline]
     fn state(&self) -> usize {
         self.inner().state.load(Ordering::Relaxed)
     }
 
-    /// Check to see if the pulse is pending or not
+    /// Check to see if the signal is pending. A signal 
     #[inline]
     pub fn is_pending(&self) -> bool {
         self.state() & TX_FLAGS == 0
@@ -286,10 +294,18 @@ impl Signal {
         }
     }
 
+    /// This is a unique id that can be used to identify the signal from others
+    /// See `Select` for how this api is useful.
     pub fn id(&self) -> usize {
         unsafe { mem::transmute_copy(&self.inner) }
     }
 
+    /// iff the `Signal` has been Pulsed, or Errored out and this is the only
+    /// cloned copy of the Signal in the system. You may `recycle` the signal.
+    /// This will create a new `Pulse` that is associated with the `Siganl`
+    ///
+    /// This api was added for optimizations reasons, as it avoids allocations
+    /// of a new signal.
     pub fn recycle(&self) -> Option<Pulse> {
         if self.in_use() {
             None
@@ -304,7 +320,7 @@ impl Signal {
     // The slow inner path if the pending check fails
     // this allows the fast already set pending check to be inlined
     // and the slower loop based check (here) to run now
-    fn wait_slow(&mut self) -> Result<(), WaitError> {
+    fn wait_slow(&self) -> Result<(), WaitError> {
         loop {
             let id = self.add_to_waitlist(Waiting::thread());
             if self.is_pending() {
@@ -317,31 +333,30 @@ impl Signal {
                 return if (state & PULSED) == PULSED {
                     Ok(())
                 } else {
-                    Err(WaitError(state))
+                    Err(WaitError::Dropped)
                 };
             }
         }
     }
 
-    /// Block the current thread until the object
-    /// assets a pulse.
+    /// Block the current thread until a `pulse` is ready.
+    /// This will block indefinably if the pulse never fires.
     #[inline]
-    pub fn wait(&mut self) -> Result<(), WaitError> {
+    pub fn wait(&self) -> Result<(), WaitError> {
         if !self.is_pending() {
             let state = self.state();
             return if (state & PULSED) == PULSED {
                 Ok(())
             } else {
-                Err(WaitError(state))
+                Err(WaitError::Dropped)
             };
         } else {
             self.wait_slow()
         }
     }
 
-    /// Block until either the pulse is sent, or
-    /// the timeout is reached
-    pub fn wait_timeout_ms(&mut self, ms: u32) -> Result<(), TimeoutError> {
+    /// Block until either the pulse is sent, or the timeout is reached
+    pub fn wait_timeout_ms(&self, ms: u32) -> Result<(), TimeoutError> {
         let mut now = (precise_time_s() * 1000.) as u64;
         let end = now + ms as u64;
 
@@ -361,7 +376,7 @@ impl Signal {
                 return if (state & PULSED) == PULSED {
                     Ok(())
                 } else {
-                    Err(TimeoutError::Error(WaitError(state)))
+                    Err(TimeoutError::Error(WaitError::Dropped))
                 };
             }
         }     
@@ -382,12 +397,19 @@ impl FromRawPtr for Pulse {
     }
 }
 
+/// Represents the possible errors that can occur on a `Signal`
 #[derive(Debug, PartialEq, Eq)]
-pub struct WaitError(usize);
+pub enum WaitError {
+    /// The `Pulse` was dropped before it could `Pulse`
+    Dropped
+}
 
+/// Represents the possible errors from a wait timeout
 #[derive(Debug, PartialEq, Eq)]
 pub enum TimeoutError {
+    /// A `WaitError` has occurred
     Error(WaitError),
+    /// The `Signal` timed-out before a `Pulse` was observed.
     Timeout
 }
 
@@ -413,19 +435,19 @@ impl ArmedSignal {
 /// allows an object to assert a wait signal
 pub trait Signals {
     /// Get a signal from a object
-    fn signal(&mut self) -> Signal;
+    fn signal(&self) -> Signal;
 
     /// Block the current thread until the object
     /// assets a pulse.
-    fn wait(&mut self) -> Result<(), WaitError> {
-        let mut signal = self.signal();
+    fn wait(&self) -> Result<(), WaitError> {
+        let signal = self.signal();
         signal.wait()
     }
 
     /// Block the current thread until the object
     /// assets a pulse. Or until the timeout has been asserted.
-    fn wait_timeout_ms(&mut self, ms: u32) -> Result<(), TimeoutError> {
-        let mut signal = self.signal();
+    fn wait_timeout_ms(&self, ms: u32) -> Result<(), TimeoutError> {
+        let signal = self.signal();
         signal.wait_timeout_ms(ms)
     }
 }

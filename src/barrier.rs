@@ -12,8 +12,6 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 
-
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::iter::IntoIterator;
@@ -25,6 +23,8 @@ struct Inner {
     pub trigger: Mutex<Option<Pulse>>
 }
 
+/// A `Barrier` can listen for 1 or more `Signals`. It will only transition
+/// to a `Pulsed` state once all the `Signals` have `Pulsed`.
 pub struct Barrier {
     inner: Arc<Inner>,
     pulses: Vec<ArmedSignal>
@@ -32,9 +32,8 @@ pub struct Barrier {
 
 pub struct Handle(pub Arc<Inner>);
 
-// This is dumb, I can't find a trait that gives me 
-// Mutable access to pulses as an array
 impl Barrier {
+    /// Create a new Barrier from an Vector of `Siganl`s
     pub fn new(pulses: Vec<Signal>) -> Barrier {
         // count items
         let inner = Arc::new(Inner{
@@ -52,13 +51,14 @@ impl Barrier {
         }
     }
 
+    /// Conver the `Barrier` back into a vector of signals.
     pub fn take(self) -> Vec<Signal> {
         self.pulses.into_iter().map(|x| x.disarm()).collect()
     }
 }
 
 impl Signals for Barrier {
-    fn signal(&mut self) -> Signal {
+    fn signal(&self) -> Signal {
         let (p, t) = Signal::new();
         if self.inner.count.load(Ordering::Relaxed) == 0 {
             t.pulse();

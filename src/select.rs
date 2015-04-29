@@ -24,37 +24,48 @@ struct Inner {
 
 pub struct Handle(pub Arc<Mutex<Inner>>);
 
+/// A `Select` listens to 1 or more signals. It will wait until
+/// any signal becomes available before Pulsing. `Select` will then
+/// return the `Signal` that has been `Pulsed`. `Select` has no defined
+/// ordering of events for `Signal`s when there are more then one `Signals`
+/// pending.
 pub struct Select {
     inner: Arc<Mutex<Inner>>,
-    pulses: HashMap<usize, ArmedSignal>
+    signals: HashMap<usize, ArmedSignal>
 }
 
 impl Select {
+    /// Create a new empty `Select`
     pub fn new() -> Select {
         Select {
             inner: Arc::new(Mutex::new(Inner{
                 ready: Vec::new(),
                 trigger: None
             })),
-            pulses: HashMap::new()
+            signals: HashMap::new()
         }
     }
 
+    /// Add a signal to the `Select`, a unique id that is associated
+    /// With the signal is returned. This can be used to remove the
+    /// signal from the `Select` or to lookup the `Pulse` when it fires.
     pub fn add(&mut self, pulse: Signal) -> usize {
         let id = pulse.id();
         let p = pulse.arm(Waiting::select(Handle(self.inner.clone())));
-        self.pulses.insert(id, p);
+        self.signals.insert(id, p);
         id
     }
 
+    /// Remove a `Signal1 from the `Select` using it's unique id.
     pub fn remove(&mut self, id: usize) -> Option<Signal> {
-        self.pulses.remove(&id)
+        self.signals.remove(&id)
             .map(|x| x.disarm())
     }
 
+    /// Convert all the signals present in the `Select` into a `Barrier`
     pub fn into_barrier(self) -> Barrier {
         let vec: Vec<Signal> = 
-            self.pulses
+            self.signals
                 .into_iter()
                 .map(|(_, p)| p.disarm())
                 .collect();
@@ -62,18 +73,20 @@ impl Select {
         Barrier::new(vec)
     }
 
-    /// None blocking next
+    /// This is a non-blocking attempt to get a `Signal` from a `Select`
+    /// this will return a `Some(Signal)` if there is a pending `Signal`
+    /// in the select. Otherwise it will return `None`
     pub fn try_next(&mut self) -> Option<Signal> {
         let mut guard = self.inner.lock().unwrap();
         if let Some(x) = guard.ready.pop() {
-            return Some(self.pulses.remove(&x).map(|x| x.disarm()).unwrap())
+            return Some(self.signals.remove(&x).map(|x| x.disarm()).unwrap())
         }
         None
     }
 
     /// Get the number of Signals being watched
     pub fn len(&self) -> usize {
-        self.pulses.len()
+        self.signals.len()
     }
 }
 
@@ -82,14 +95,14 @@ impl Iterator for Select {
 
     fn next(&mut self) -> Option<Signal> {
         loop {
-            if self.pulses.len() == 0 {
+            if self.signals.len() == 0 {
                 return None;
             }
 
-            let mut pulse = {
+            let pulse = {
                 let mut guard = self.inner.lock().unwrap();
                 if let Some(x) = guard.ready.pop() {
-                    return Some(self.pulses.remove(&x).map(|x| x.disarm()).unwrap());
+                    return Some(self.signals.remove(&x).map(|x| x.disarm()).unwrap());
                 }
                 let (pulse, t) = Signal::new();
                 guard.trigger = Some(t);
@@ -101,7 +114,7 @@ impl Iterator for Select {
 }
 
 impl Signals for Select {
-    fn signal(&mut self) -> Signal {
+    fn signal(&self) -> Signal {
         let (pulse, t) = Signal::new();
         let mut guard = self.inner.lock().unwrap();
         if guard.ready.len() == 0 {
@@ -113,13 +126,16 @@ impl Signals for Select {
     }
 }
 
-
+/// `SelectMap` is a wrapper around a `Select` rather then use
+/// a unique id to find out what signal has been asserts, `SelectMap`
+/// will return an supplied object.
 pub struct SelectMap<T> {
     select: Select,
     items: HashMap<usize, T>
 }
 
 impl<T> SelectMap<T> {
+    /// Create a new empty `SelectMap`
     pub fn new() -> SelectMap<T> {
         SelectMap {
             select: Select::new(),
@@ -127,12 +143,15 @@ impl<T> SelectMap<T> {
         }
     }
 
-    pub fn add(&mut self, pulse: Signal, value: T) {
-        let id = self.select.add(pulse);
+    /// Add a `Signal` and an associated value into the `SelectMap`
+    pub fn add(&mut self, signal: Signal, value: T) {
+        let id = self.select.add(signal);
         self.items.insert(id, value);
     }
 
-    /// None blocking next
+    /// This is a non-blocking attempt to get a `Signal` from a `SelectMap`
+    /// this will return a `Some((Signal, T))` if there is a pending `Signal`
+    /// in the select. Otherwise it will return `None`
     pub fn try_next(&mut self) -> Option<(Signal, T)> {
         self.select.try_next().map(|x| {
             let id = x.id();
@@ -140,7 +159,7 @@ impl<T> SelectMap<T> {
         })
     }
 
-    /// Get the number of items in teh Select
+    /// Get the number of items in the `SelectMap`
     pub fn len(&self) -> usize { self.items.len() }
 }
 
@@ -156,7 +175,7 @@ impl<T> Iterator for SelectMap<T> {
 }
 
 impl<T> Signals for SelectMap<T> {
-    fn signal(&mut self) -> Signal {
+    fn signal(&self) -> Signal {
         self.select.signal()
     }
 }
