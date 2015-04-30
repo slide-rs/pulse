@@ -497,3 +497,10 @@ pub fn swap_scheduler(mut sched: Box<Scheduler>) -> Box<Scheduler> {
 
     sched
 }
+
+/// Call the suppled closure using the supplied schedulee
+pub fn with_scheduler<F>(f: F, sched: Box<Scheduler>) -> Box<Scheduler> where F: FnOnce() {
+    let old = swap_scheduler(sched);
+    f();
+    swap_scheduler(old)
+}
