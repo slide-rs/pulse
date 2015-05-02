@@ -9,3 +9,7 @@ homepage = "https://github.com/csherratt/pulse"
 [dependencies]
 atom = "*"
 time = "*"
+
+[features]
+default = []
+callback = []

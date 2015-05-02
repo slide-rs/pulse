@@ -12,8 +12,12 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 
+#![cfg_attr(feature="callback", feature(alloc, core))]
+
 extern crate atom;
 extern crate time;
+#[cfg(feature="callback")]
+extern crate alloc;
 
 use std::sync::atomic::{AtomicUsize};
 use std::thread;
@@ -22,6 +26,8 @@ use std::fmt;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 use std::cell::RefCell;
+#[cfg(feature="callback")]
+use alloc::boxed::FnBox;
 
 use atom::*;
 use time::precise_time_s;
@@ -61,7 +67,9 @@ impl GetNextMut for Box<Waiting> {
 enum Wake {
     Thread(thread::Thread),
     Select(select::Handle),
-    Barrier(barrier::Handle)
+    Barrier(barrier::Handle),
+    #[cfg(feature="callback")]
+    Callback(Box<FnBox()>)
 }
 
 impl Waiting {
@@ -91,6 +99,8 @@ impl Waiting {
                         }
                     }
                 }
+                #[cfg(feature="callback")]
+                Wake::Callback(cb) => cb()
             }
         }
     }
@@ -106,17 +116,25 @@ impl Waiting {
         })
     }
 
-    fn select(handle: select::Handle) ->Box<Waiting> {
+    fn select(handle: select::Handle) -> Box<Waiting> {
         Box::new(Waiting{
             next: None,
             wake: Wake::Select(handle)
         })
     }
 
-    fn barrier(handle: barrier::Handle) ->Box<Waiting> {
+    fn barrier(handle: barrier::Handle) -> Box<Waiting> {
         Box::new(Waiting{
             next: None,
             wake: Wake::Barrier(handle)
+        })
+    }
+
+    #[cfg(feature="callback")]
+    fn callback<F>(cb: F) -> Box<Waiting> where F: FnOnce() + 'static {
+        Box::new(Waiting{
+            next: None,
+            wake: Wake::Callback(Box::new(cb))
         })
     }
 }
@@ -270,14 +288,19 @@ impl Signal {
 
     /// Read out the state of the Signal
     #[inline]
-    fn state(&self) -> usize {
-        self.inner().state.load(Ordering::Relaxed)
+    pub fn state(&self) -> SignalState {
+        let flags = self.inner().state.load(Ordering::Relaxed);
+        match (flags & TX_DROP == TX_DROP, flags & PULSED == PULSED) {
+            (_, true) => SignalState::Pulsed,
+            (true, _) => SignalState::Dropped,
+            (_, _) => SignalState::Pending
+        }
     }
 
     /// Check to see if the signal is pending. A signal 
     #[inline]
     pub fn is_pending(&self) -> bool {
-        self.state() & TX_FLAGS == 0
+        self.state() == SignalState::Pending
     }
 
     /// Add a waiter to a waitlist
@@ -326,26 +349,44 @@ impl Signal {
     /// This will block indefinably if the pulse never fires.
     #[inline]
     pub fn wait(self) -> Result<(), WaitError> {
-        if !self.is_pending() {
-            let state = self.state();
-            return if (state & PULSED) == PULSED {
-                Ok(())
-            } else {
-                Err(WaitError::Dropped)
-            };
-        } else {
-            SCHED.with(|sched| {
-                sched.borrow().wait(self)
-            })
+        match self.state() {
+            SignalState::Pulsed => Ok(()),
+            SignalState::Dropped => Err(WaitError::Dropped),
+            SignalState::Pending => {
+                let s = SCHED.with(|sched| {
+                    sched.borrow_mut().take().expect("Waited while: no scheduler installed")
+                });
+                let res = s.wait(self);
+                SCHED.with(|sched| {
+                    *sched.borrow_mut() = Some(s);
+                });
+                res
+            }
         }
     }
 
     /// Block until either the pulse is sent, or the timeout is reached
     pub fn wait_timeout_ms(self, ms: u32) -> Result<(), TimeoutError> {
         SCHED.with(|sched| {
-            sched.borrow().wait_timeout_ms(self, ms)
+            let s = sched.borrow_mut().take().expect("Waited while: no scheduler installed");
+            let res = s.wait_timeout_ms(self, ms);
+            *sched.borrow_mut() = Some(s);
+            res
         })
     }
+
+    #[cfg(feature="callback")]
+    pub fn callback<F>(self, cb: F) where F: FnOnce() + 'static {
+        self.add_to_waitlist(Waiting::callback(cb));
+    }
+}
+
+/// Described the possible states of a Signal
+#[derive(Debug, PartialEq, Eq)]
+pub enum SignalState {
+    Pending,
+    Pulsed,
+    Dropped
 }
 
 impl IntoRawPtr for Pulse {
@@ -419,7 +460,7 @@ pub trait Signals {
 /// This is the hook into the async wait methods provided
 /// by `pulse`. It is required for the user to override
 /// the current system scheduler.
-pub trait Scheduler {
+pub trait Scheduler: std::fmt::Debug {
     /// Wait until the signal is made `ready` or `errored`
     fn wait(&self, signal: Signal) -> Result<(), WaitError>;
 
@@ -431,6 +472,7 @@ pub trait Scheduler {
 /// This is the `default` system scheduler that is used if no
 /// user provided scheduler is installed. It is very basic
 /// and will block the OS thread using `thread::park`
+#[derive(Debug)]
 pub struct ThreadScheduler;
 
 impl Scheduler for ThreadScheduler {
@@ -442,13 +484,10 @@ impl Scheduler for ThreadScheduler {
             }
             signal.remove_from_waitlist(id);
 
-            if !signal.is_pending() {
-                let state = signal.state();
-                return if (state & PULSED) == PULSED {
-                    Ok(())
-                } else {
-                    Err(WaitError::Dropped)
-                };
+            match signal.state() {
+                SignalState::Pending => (),
+                SignalState::Pulsed => return Ok(()),
+                SignalState::Dropped => return Err(WaitError::Dropped)
             }
         }
     }
@@ -468,39 +507,34 @@ impl Scheduler for ThreadScheduler {
             }
             signal.remove_from_waitlist(id);
 
-            if !signal.is_pending() {
-                let state = signal.state();
-                return if (state & PULSED) == PULSED {
-                    Ok(())
-                } else {
-                    Err(TimeoutError::Error(WaitError::Dropped))
-                };
+            match signal.state() {
+                SignalState::Pending => (),
+                SignalState::Pulsed => return Ok(()),
+                SignalState::Dropped => return Err(TimeoutError::Error(WaitError::Dropped))
             }
         }
     }
 }
 
 /// The TLS scheduler
-thread_local!(static SCHED: RefCell<Box<Scheduler>> = RefCell::new(Box::new(ThreadScheduler)));
+thread_local!(static SCHED: RefCell<Option<Box<Scheduler>>> = RefCell::new(Some(Box::new(ThreadScheduler))));
 
 /// Replace the current Scheduler with your own supplied scheduler.
 /// all `wait()` commands will be run through this scheduler now.
 ///
 /// This will return the current TLS scheduler, which may be useful
 /// to restore it later.
-pub fn swap_scheduler(mut sched: Box<Scheduler>) -> Box<Scheduler> {
-    use std::mem;
-
+pub fn swap_scheduler(sched: Box<Scheduler>) -> Option<Box<Scheduler>> {
     SCHED.with(|s| {
-        mem::swap(&mut *s.borrow_mut(), &mut sched);
-    });
-
-    sched
+        let old = s.borrow_mut().take();
+        *s.borrow_mut() = Some(sched);
+        old
+    })
 }
 
 /// Call the suppled closure using the supplied schedulee
-pub fn with_scheduler<F>(f: F, sched: Box<Scheduler>) -> Box<Scheduler> where F: FnOnce() {
+pub fn with_scheduler<F>(f: F, sched: Box<Scheduler>) -> Option<Box<Scheduler>> where F: FnOnce() {
     let old = swap_scheduler(sched);
     f();
-    swap_scheduler(old)
+    old.and_then(|o| swap_scheduler(o))
 }
