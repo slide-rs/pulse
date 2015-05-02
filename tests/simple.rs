@@ -120,33 +120,6 @@ fn clone_wait() {
 }
 
 #[test]
-fn barrier_reuse() {
-    let (p, t) = Signal::new();
-    let barrier = Barrier::new(vec![p.clone()]);
-    let barriers: Vec<Barrier> =
-        (0..20).map(|_| Barrier::new(vec![p.clone()]))
-               .collect();
-
-    let triggers: Vec<Signal> = barriers.into_iter().map(|b| {
-        let p = b.signal();
-        assert!(p.is_pending());
-        b.take();
-        p
-    }).collect();
-
-    assert!(p.is_pending());
-    assert!(barrier.signal().is_pending());
-    t.pulse();
-    assert!(!p.is_pending());
-    assert!(!barrier.signal().is_pending());
-    for p in triggers {
-        // These will all error out since the trigger
-        // was destroyed;
-        assert!(p.wait().is_err());
-    }
-}
-
-#[test]
 fn cast_to_usize() {
     let (p, t) = Signal::new();
 

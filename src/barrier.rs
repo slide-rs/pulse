@@ -14,9 +14,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::iter::IntoIterator;
 
-use {Pulse, Signal, ArmedSignal, Waiting, Signals};
+use {Pulse, Signal, Waiting, Signals};
 
 struct Inner {
     pub count: AtomicUsize,
@@ -26,35 +25,27 @@ struct Inner {
 /// A `Barrier` can listen for 1 or more `Signals`. It will only transition
 /// to a `Pulsed` state once all the `Signals` have `Pulsed`.
 pub struct Barrier {
-    inner: Arc<Inner>,
-    pulses: Vec<ArmedSignal>
+    inner: Arc<Inner>
 }
 
 pub struct Handle(pub Arc<Inner>);
 
 impl Barrier {
     /// Create a new Barrier from an Vector of `Siganl`s
-    pub fn new(pulses: Vec<Signal>) -> Barrier {
+    pub fn new(pulses: &[Signal]) -> Barrier {
         // count items
         let inner = Arc::new(Inner{
             count: AtomicUsize::new(pulses.len()),
             trigger: Mutex::new(None)
         });
-        let pulses: Vec<ArmedSignal> = 
-            pulses.into_iter()
-                  .map(|x| x.arm(Waiting::barrier(Handle(inner.clone()))))
-                  .collect();
 
-        Barrier {
-            inner: inner,
-            pulses: pulses
+        for pulse in pulses {
+            pulse.clone().arm(Waiting::barrier(Handle(inner.clone())));
         }
+
+        Barrier { inner: inner }
     }
 
-    /// Conver the `Barrier` back into a vector of signals.
-    pub fn take(self) -> Vec<Signal> {
-        self.pulses.into_iter().map(|x| x.disarm()).collect()
-    }
 }
 
 impl Signals for Barrier {

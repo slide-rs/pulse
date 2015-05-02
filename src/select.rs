@@ -70,7 +70,7 @@ impl Select {
                 .map(|(_, p)| p.disarm())
                 .collect();
 
-        Barrier::new(vec)
+        Barrier::new(&vec)
     }
 
     /// This is a non-blocking attempt to get a `Signal` from a `Select`
