@@ -140,6 +140,9 @@ impl Waiting {
 }
 
 unsafe impl Send for Pulse {}
+// This should be safe a pulse requires ownership to
+// actually `pulse`
+unsafe impl Sync for Pulse {}
 
 /// A `Pulse` is represents an unfired signal. It is the tx side of Signal
 /// A `Pulse` can only purpose it to be fired, and then it will be moved
