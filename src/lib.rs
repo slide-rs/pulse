@@ -179,6 +179,7 @@ impl Drop for Pulse {
 
 impl Pulse {
     /// Create a Pulse from a usize. This is naturally unsafe.
+    #[inline]
     pub unsafe fn cast_from_usize(ptr: usize) -> Pulse {
         Pulse {
             inner: mem::transmute(ptr)
@@ -187,20 +188,24 @@ impl Pulse {
 
     /// Convert a trigger to a `usize`, This is unsafe
     /// and it will kill your kittens if you are not careful
+    #[inline]
     pub unsafe fn cast_to_usize(self) -> usize {
         let us = mem::transmute(self.inner);
         mem::forget(self);
         us
     }
 
+    #[inline]
     fn inner(&self) -> &Inner {
         unsafe { mem::transmute(self.inner) }
     }
 
+    #[inline]
     fn set(&self, state: usize) -> usize {
         self.inner().state.fetch_or(state, Ordering::Relaxed)
     }
 
+    #[inline]
     fn wake(&self) {
         let id = unsafe { mem::transmute(self.inner) };
         match self.inner().waiting.take() {
@@ -211,6 +216,7 @@ impl Pulse {
 
     /// Pulse the `pulse` which will transition the `Signal` out from pending
     /// to ready. This moves the pulse so that it can only be fired once.
+    #[inline]
     pub fn pulse(self) {
         self.set(PULSED);
         self.wake();
@@ -240,6 +246,7 @@ impl fmt::Debug for Signal {
 }
 
 impl Clone for Signal {
+    #[inline]
     fn clone(&self) -> Signal {
         self.inner().state.fetch_add(1, Ordering::Relaxed);
         Signal { inner: self.inner }
@@ -309,6 +316,11 @@ impl Signal {
     /// Add a waiter to a waitlist
     fn add_to_waitlist(&self, waiter: Box<Waiting>) -> usize {
         let id = waiter.id();
+
+        if !self.is_pending() {
+            Waiting::wake(waiter, self.id());
+            return id;
+        }
 
         self.inner().waiting.replace_and_set_next(waiter);
 
