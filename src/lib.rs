@@ -246,7 +246,7 @@ impl fmt::Debug for Signal {
 }
 
 impl Clone for Signal {
-    #[inline]
+    #[inline(always)]
     fn clone(&self) -> Signal {
         self.inner().state.fetch_add(1, Ordering::Relaxed);
         Signal { inner: self.inner }
@@ -415,6 +415,20 @@ impl IntoRawPtr for Pulse {
 impl FromRawPtr for Pulse {
     unsafe fn from_raw(ptr: *mut ()) -> Pulse {
         Pulse { inner: mem::transmute(ptr) }
+    }
+}
+
+impl IntoRawPtr for Signal {
+    unsafe fn into_raw(self) -> *mut () {
+        let inner = self.inner;
+        mem::forget(self);
+        mem::transmute(inner)
+    }
+}
+
+impl FromRawPtr for Signal {
+    unsafe fn from_raw(ptr: *mut ()) -> Signal {
+        Signal { inner: mem::transmute(ptr) }
     }
 }
 
