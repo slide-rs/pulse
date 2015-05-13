@@ -1,77 +1,98 @@
-# Pulse
+Pulse
+=====
 
-Pulse is a small library build around the idea of a single shot async notification, a Pulse.
-A pulse contains no data, just the state of whether is pending, triggered, or dropped.
+Imagine you are building a fancy high performance channel for sending data between two threads. At some point, your are going to need to figure out a way to wait on the queue for new data to become available. Spinning on a `try_recv` sucks, and some people like their phones to have more than 30 minutes of battery. We need to implement `recv`.
 
-From this basic building block, a developer can get notifications of when state changes 
-have occurred that the program needs to act on. For example, you have have a number of
-small tasks that the developer is interested in being woken for. You may want to listen
-to one, or more. Currently using `JoinHandle` you have to wait in sequence to join one
-or more threads. If each thread has a `Pulse`, you can `Select` over each `Pulse` knowing
-what threads have been woken and when.
+There are a few ways to do this, you could use a condition variable + mutex. So you lock your channel, check to see if there is data, then wait on the condition variable if there is nothing to read. If you wanted to do this without locking, you may even use a Semaphore. Just do a `acquire()` on the semaphore, and if it ever returns you know there is data waiting to be read. As a bonus, it lets multiple threads wait on the same channel. Which is neat.
 
-## Basic Usage
+So you are all happy, your benchmarks are good. Then someone, posts a issue asking if there is a way to wait on two channels. Hmm, this is not a trivial problem. A semaphore does not offer an api that would let you `acquire()` on more than one Semaphore at a time. Condition variables don’t either :(
+
+Pulse to the rescue! Pulse’s solution to the problem is a one-shot Signal. A Signal represents whether something has occurred or not. It has an extremely simple state transition diagram. It can only be Pending, Ready, or in an Dropped, and there is no way to unset a signal as it state is sticky.
+
+![state](https://raw.githubusercontent.com/csherratt/pulse/master/.images/states.png)
+
+It looks like this in practice:
 
 ```rust
-// Create a pulse & its trigger
-let (mut signal, pulse) = Signal::new();
+// Create a new signal and pulse, the pulse is the setting side of a signal
+let (signal, pulse) = Signal::new();
 
 thread::spawn(move || {
-	pulse.pulse();
+    // Do awesome things here, like uploading a cat picture to internet
+
+    // Trigger a pulse now that we are done
+    pulse.pulse();
 });
 
-// Wait here until the pulse has been triggered
+// Wait for the pulse! :D
 signal.wait().unwrap();
 ```
 
-## Primitives
+You must be asking now, "Ok, but how does this help me with multiple channels? You got some sort of silly flag variable that you can wait on. So now instead of waiting on a Semaphore, I am waiting on your stupid Signal."
 
-### Signal
-
-The basic building block, a set only once flag. It supports cloning
-so multiple threads/blocks can wait on a single `Signal` if you need to.
-
-### Pulse
-
-The setting side of a `Signal`. A trigger cannot be cloned, and may only
-exist in one place in the system. As part of the triggering process the `Signal`
-is moved and dropped. So it is impossible to accidentally fire it twice.
-
-### Select
-
-A `Select` allows the developer to listen to 1-N pulses. When a pulse is fired,
-the `Select` will be woken up. A `Select` has no guaranteed ordering of the pulses.
-
-### Barrier
-
-A `Barrier` can listen for 0-N pulses. It will only trigger once all the pulses it
-is waiting on have completed.
-
-
-## Composability
-
-Both a `Select` and a `Barrier` themselves can be turned into a `Pulse`. This allows
-for a tree like structure of wake events to be created. This might not seem immediately
-useful, but it allows the developer to categorize what woke them up.
-
-For example, you can have a `Select` of tasks that are running. And a `Select` on a messages
-coming from the tasks.
+Well, You can also Select over multiple signals:
 
 ```rust
-let mut tasks = Select::new();
-let mut events = Select::new();
+let mut select = SelectMap::new();
+let (signal, pulse) = Signal::new();
+let join = thread::spawn(move || {
+    // Do something slow
+    pulse.pulse();
+});
+select.add(signal, join);
 
-let mut task_id = events.add(tasks.pulse());
+let (signal, pulse) = Signal::new();
+let join = thread::spawn(move || {
+    // Do something else slow
+    pulse.pulse();
+});
+select.add(signal, join);
 
-for pulse in events {
-	if pulse.id() == task_id {
-		if let Some(p) == tasks.try_next() {
-			// ???
-		}
-	} else if pulse.id() == some_other_event {
-		// ???
-	}
+for (_, join) in select {
+    join.join(); // \o/
 }
-
 ```
 
+You ain't seen nothing yet. `Select` and `SelectMap` both need to wait, so how would they block... they need some sort of blocking primitive to Signal on... Do you, see where I am going with this?
+
+This is the true beauty of Pulse’s design. The blocking primitives are all composable. Select is just waiting on one or more Signals. It will assert its pulse once any of the signals are ready. This is much like an Logical OR gate. And Like a logical OR gate, they can be chained*.
+
+![or](https://raw.githubusercontent.com/csherratt/pulse/master/.images/or_gate.png)
+
+What if you want to wait for all the signals to assert before you continue? You could, just do something like this:
+
+```rust
+for signal in signals {
+    signal.wait();
+}
+```
+
+But now you are going to wake up every time a signal is ready. That could be quite a few contexts switches. We need an AND gate or a Barrier of some sort.
+
+```rust
+// A barrier of all the signals, waits until they are all ready
+Barrier::new(&signals).wait();
+```
+
+![and](https://raw.githubusercontent.com/csherratt/pulse/master/.images/and_gate.png)
+
+Of course a Barrier is just a Signal too... you can wire it into a Select, or another barrier.. It’s _all_ composable.
+
+It gets better:
+---------------
+
+These large signal chains can be used to easily build your own fancy dancy work scheduler. Since a Signal can represent a wait point, You can map Signal to continuation. When the Signal asserts as ready, the continuation is ready to run. There are every provision to change the meaning of a `wait`, which makes Pulse useful for writing a custom fiber/green threads/coroutine implementation. :D
+
+There must be some ugly part to all of this?
+--------------------------------------------
+
+And there is, Pulse does not magically make your hyper faster channel work in all cases. It is still a hard problem to know when things need to be woken up. If you install a pulse, and another thread enqueues at the same time you have to make sure you have not left yourself in a situation where no thread will trigger the pulse. 
+
+My recommended strategy is to double check conditions, once before you install the Pulse (the fast path) and once after. The thread that installed the pulse can uninstall its own pulse and trigger it. But there be dragons.
+
+Why is it called Pulse?
+-----------------------
+
+1) Because someone already claimed `Event` on crates.io
+2) It's common way to set a flip-flop in hardware. You send a signal in the form a pulse, the flip-flop gets set and assets a high signal.
+That signal can go to an AND gate, or an OR gate... ect ect.
