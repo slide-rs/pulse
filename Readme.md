@@ -93,6 +93,6 @@ My recommended strategy is to double check conditions, once before you install t
 Why is it called Pulse?
 -----------------------
 
-1) Because someone already claimed `Event` on crates.io
-2) It's common way to set a flip-flop in hardware. You send a signal in the form a pulse, the flip-flop gets set and assets a high signal.
+ 1. Because someone already claimed `Event` on crates.io
+ 2. It's common way to set a flip-flop in hardware. You send a signal in the form a pulse, the flip-flop gets set and assets a high signal.
 That signal can go to an AND gate, or an OR gate... ect ect.
