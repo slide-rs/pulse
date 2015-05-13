@@ -92,6 +92,8 @@ And there is, Pulse does not magically make your hyper faster channel work in al
 
 My recommended strategy is to double check conditions, once before you install the Pulse (the fast path) and once after. The thread that installed the pulse can uninstall its own pulse and trigger it. But there be dragons.
 
+You can use a library like [atom](https://github.com/csherratt/atom) to store a Pulse inside of a data structure without a lock.
+
 Why is it called Pulse?
 -----------------------
 
