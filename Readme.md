@@ -1,5 +1,7 @@
 Pulse
 =====
+[![Build Status](https://travis-ci.org/csherratt/pulse.svg?branch=master)](https://travis-ci.org/csherratt/pulse)
+[![Pulse](http://meritbadge.herokuapp.com/pulse)](https://crates.io/crates/pulse)
 
 Imagine you are building a fancy high performance channel for sending data between two threads. At some point, your are going to need to figure out a way to wait on the queue for new data to become available. Spinning on a `try_recv` sucks, and some people like their phones to have more than 30 minutes of battery. We need to implement `recv`.
 
