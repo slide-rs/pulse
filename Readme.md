@@ -5,7 +5,7 @@ Pulse
 
 Imagine you are building a fancy high performance channel for sending data between two threads. At some point, your are going to need to figure out a way to wait on the queue for new data to become available. Spinning on a `try_recv` sucks, and some people like their phones to have more than 30 minutes of battery. We need to implement `recv`.
 
-There are a few ways to do this, you could use a condition variable + mutex. So you lock your channel, check to see if there is data, then wait on the condition variable if there is nothing to read. If you wanted to do this without locking, you may even use a Semaphore. Just do a `acquire()` on the semaphore, and if it ever returns you know there is data waiting to be read. As a bonus, it lets multiple threads wait on the same channel. Which is neat.
+There are a few ways to do this, you could use a condition variable + mutex. So you lock your channel, check to see if there is data, then wait on the condition variable if there is nothing to read. If you wanted to do this without locking, you could use a Semaphore. Just do a `acquire()` on the semaphore, and if it ever returns you know there is data waiting to be read. As a bonus, it lets multiple threads wait on the same channel. Which is neat.
 
 So you are all happy, your benchmarks are good. Then someone, posts a issue asking if there is a way to wait on two channels. Hmm, this is not a trivial problem. A semaphore does not offer an api that would let you `acquire()` on more than one Semaphore at a time. Condition variables don’t either :(
 
@@ -98,3 +98,8 @@ Why is it called Pulse?
  1. Because someone already claimed `Event` on crates.io
  2. It's common way to set a flip-flop in hardware. You send a signal in the form a pulse, the flip-flop gets set and assets a high signal.
 That signal can go to an AND gate, or an OR gate... ect ect.
+
+Is it 1.0.0 Compatible?
+------------------------
+
+Yes. By default it uses only stable api's. There is experimental support for callbacks that is not compatible with rust 1.0.0, but that is hidden behind a feature flag.
