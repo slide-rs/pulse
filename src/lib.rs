@@ -368,13 +368,9 @@ impl Signal {
             SignalState::Pulsed => Ok(()),
             SignalState::Dropped => Err(WaitError::Dropped),
             SignalState::Pending => {
-                let s = SCHED.with(|sched| {
-                    sched.borrow_mut().take().expect("Waited while: no scheduler installed")
-                });
+                let s = take_scheduler().expect("no scheduler found");
                 let res = s.wait(self);
-                SCHED.with(|sched| {
-                    *sched.borrow_mut() = Some(s);
-                });
+                swap_scheduler(s);
                 res
             }
         }
@@ -405,6 +401,7 @@ pub enum SignalState {
 }
 
 impl IntoRawPtr for Pulse {
+    #[inline(always)]
     unsafe fn into_raw(self) -> *mut () {
         let inner = self.inner;
         mem::forget(self);
@@ -413,12 +410,14 @@ impl IntoRawPtr for Pulse {
 }
 
 impl FromRawPtr for Pulse {
+    #[inline(always)]
     unsafe fn from_raw(ptr: *mut ()) -> Pulse {
         Pulse { inner: mem::transmute(ptr) }
     }
 }
 
 impl IntoRawPtr for Signal {
+    #[inline(always)]
     unsafe fn into_raw(self) -> *mut () {
         let inner = self.inner;
         mem::forget(self);
@@ -427,6 +426,7 @@ impl IntoRawPtr for Signal {
 }
 
 impl FromRawPtr for Signal {
+    #[inline(always)]
     unsafe fn from_raw(ptr: *mut ()) -> Signal {
         Signal { inner: mem::transmute(ptr) }
     }
@@ -548,17 +548,26 @@ impl Scheduler for ThreadScheduler {
 /// The TLS scheduler
 thread_local!(static SCHED: RefCell<Option<Box<Scheduler>>> = RefCell::new(Some(Box::new(ThreadScheduler))));
 
+// this is inline never to avoid the SCHED pointer being cached
+#[inline(never)]
+fn take_scheduler() -> Option<Box<Scheduler>> {
+    use std::mem;
+    let mut sched = None;
+    SCHED.with(|s| mem::swap(&mut *s.borrow_mut(), &mut sched));
+    sched
+}
+
 /// Replace the current Scheduler with your own supplied scheduler.
 /// all `wait()` commands will be run through this scheduler now.
 ///
 /// This will return the current TLS scheduler, which may be useful
 /// to restore it later.
+#[inline(never)]
 pub fn swap_scheduler(sched: Box<Scheduler>) -> Option<Box<Scheduler>> {
-    SCHED.with(|s| {
-        let old = s.borrow_mut().take();
-        *s.borrow_mut() = Some(sched);
-        old
-    })
+    use std::mem;
+    let mut sched = Some(sched);
+    SCHED.with(|s| mem::swap(&mut *s.borrow_mut(), &mut sched));
+    sched
 }
 
 /// Call the suppled closure using the supplied schedulee
