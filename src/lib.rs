@@ -223,12 +223,15 @@ impl Pulse {
 
         let state = self.inner().state.fetch_sub(1, Ordering::Relaxed);
         delete_inner(state, self.inner);
-        unsafe { mem::forget(self) }
+        mem::forget(self)
     }
 }
 
 
 unsafe impl Send for Signal {}
+// This should be safe a signal requires ownership to do anything
+// the inner is all atomically modified data anyhow
+unsafe impl Sync for Signal {}
 
 /// A `Signal` represents listens for a `pulse` to occur in the system. A
 /// `Signal` has one of three states. Pending, Pulsed, or Errored. Pending
