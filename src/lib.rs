@@ -12,7 +12,7 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 
-#![cfg_attr(feature="callback", feature(alloc, core))]
+#![cfg_attr(feature="callback", feature(fnbox, alloc))]
 
 extern crate atom;
 extern crate time;
