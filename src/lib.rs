@@ -12,12 +12,8 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 
-#![cfg_attr(feature="callback", feature(alloc, core))]
-
 extern crate atom;
 extern crate time;
-#[cfg(feature="callback")]
-extern crate alloc;
 
 use std::sync::atomic::{AtomicUsize};
 use std::thread;
@@ -26,16 +22,16 @@ use std::fmt;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 use std::cell::RefCell;
-#[cfg(feature="callback")]
-use alloc::boxed::FnBox;
 
 use atom::*;
 use time::precise_time_s;
+use fnbox::FnBox;
 
 pub use select::{Select, SelectMap};
 pub use barrier::Barrier;
 mod select;
 mod barrier;
+mod fnbox;
 
 /// Drop rules
 /// This may be freed iff state is Signald | Dropped
@@ -68,8 +64,7 @@ enum Wake {
     Thread(thread::Thread),
     Select(select::Handle),
     Barrier(barrier::Handle),
-    #[cfg(feature="callback")]
-    Callback(Box<FnBox()>)
+    Callback(Box<FnBox>)
 }
 
 impl Waiting {
@@ -99,8 +94,7 @@ impl Waiting {
                         }
                     }
                 }
-                #[cfg(feature="callback")]
-                Wake::Callback(cb) => cb()
+                Wake::Callback(cb) => cb.call_box(),
             }
         }
     }
@@ -130,7 +124,6 @@ impl Waiting {
         })
     }
 
-    #[cfg(feature="callback")]
     fn callback<F>(cb: F) -> Box<Waiting> where F: FnOnce() + 'static {
         Box::new(Waiting{
             next: None,
@@ -389,7 +382,6 @@ impl Signal {
         })
     }
 
-    #[cfg(feature="callback")]
     pub fn callback<F>(self, cb: F) where F: FnOnce() + 'static {
         self.add_to_waitlist(Waiting::callback(cb));
     }
