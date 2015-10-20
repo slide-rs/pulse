@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use {Pulse, Signal, Waiting, Signals};
 
-struct Inner {
+pub struct Inner {
     pub count: AtomicUsize,
     pub trigger: Mutex<Option<Pulse>>
 }
