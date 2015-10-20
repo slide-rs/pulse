@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use {Signal, ArmedSignal, Pulse, Waiting, Barrier, Signals};
 
-struct Inner {
+pub struct Inner {
     pub ready: Vec<usize>,
     pub trigger: Option<Pulse>
 }
