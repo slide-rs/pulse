@@ -101,8 +101,10 @@ impl Iterator for Select {
 
             let pulse = {
                 let mut guard = self.inner.lock().unwrap();
-                if let Some(x) = guard.ready.pop() {
-                    return Some(self.signals.remove(&x).map(|x| x.disarm()).unwrap());
+                while let Some(x) = guard.ready.pop() {
+                    if let Some(x) = self.signals.remove(&x) {
+                        return Some(x.disarm());
+                    }
                 }
                 let (pulse, t) = Signal::new();
                 guard.trigger = Some(t);
