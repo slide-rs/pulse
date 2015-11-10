@@ -121,3 +121,24 @@ fn select_already_pulsed() {
     let p = select.next();
     assert!(p.is_none());
 }
+
+#[test]
+fn select_remove() {
+    let (p0, t0) = Signal::new();
+    let (p1, t1) = Signal::new();
+
+    let mut select = Select::new();
+    let id0 = select.add(p0);
+    let id1 = select.add(p1);
+
+    thread::spawn(move || {
+        // This should only matter if the bug still exists
+        // this thread will otherwise unblock the select
+        thread::sleep_ms(100);
+        t1.pulse();
+    });
+
+    t0.pulse();
+    select.remove(id0).unwrap();
+    assert_eq!(id1, select.next().unwrap().id());
+}
