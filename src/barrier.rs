@@ -19,13 +19,13 @@ use {Pulse, Signal, Waiting, Signals};
 
 pub struct Inner {
     pub count: AtomicUsize,
-    pub trigger: Mutex<Option<Pulse>>
+    pub trigger: Mutex<Option<Pulse>>,
 }
 
 /// A `Barrier` can listen for 1 or more `Signals`. It will only transition
 /// to a `Pulsed` state once all the `Signals` have `Pulsed`.
 pub struct Barrier {
-    inner: Arc<Inner>
+    inner: Arc<Inner>,
 }
 
 pub struct Handle(pub Arc<Inner>);
@@ -34,9 +34,9 @@ impl Barrier {
     /// Create a new Barrier from an Vector of `Siganl`s
     pub fn new(pulses: &[Signal]) -> Barrier {
         // count items
-        let inner = Arc::new(Inner{
+        let inner = Arc::new(Inner {
             count: AtomicUsize::new(pulses.len()),
-            trigger: Mutex::new(None)
+            trigger: Mutex::new(None),
         });
 
         for pulse in pulses {
@@ -45,16 +45,16 @@ impl Barrier {
 
         Barrier { inner: inner }
     }
-
 }
 
 impl Signals for Barrier {
     fn signal(&self) -> Signal {
         let (p, t) = Signal::new();
+
+        let mut guard = self.inner.trigger.lock().unwrap();
         if self.inner.count.load(Ordering::Relaxed) == 0 {
             t.pulse();
         } else {
-            let mut guard = self.inner.trigger.lock().unwrap();
             *guard = Some(t);
         }
         p
