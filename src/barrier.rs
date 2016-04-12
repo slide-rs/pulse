@@ -50,11 +50,11 @@ impl Barrier {
 
 impl Signals for Barrier {
     fn signal(&self) -> Signal {
+        let mut guard = self.inner.trigger.lock().unwrap();
         let (p, t) = Signal::new();
         if self.inner.count.load(Ordering::Relaxed) == 0 {
             t.pulse();
         } else {
-            let mut guard = self.inner.trigger.lock().unwrap();
             *guard = Some(t);
         }
         p
