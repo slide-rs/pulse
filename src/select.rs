@@ -19,7 +19,7 @@ use {Signal, ArmedSignal, Pulse, Waiting, Barrier, Signals};
 
 pub struct Inner {
     pub ready: Vec<usize>,
-    pub trigger: Option<Pulse>
+    pub trigger: Option<Pulse>,
 }
 
 pub struct Handle(pub Arc<Mutex<Inner>>);
@@ -31,18 +31,18 @@ pub struct Handle(pub Arc<Mutex<Inner>>);
 /// pending.
 pub struct Select {
     inner: Arc<Mutex<Inner>>,
-    signals: HashMap<usize, ArmedSignal>
+    signals: HashMap<usize, ArmedSignal>,
 }
 
 impl Select {
     /// Create a new empty `Select`
     pub fn new() -> Select {
         Select {
-            inner: Arc::new(Mutex::new(Inner{
+            inner: Arc::new(Mutex::new(Inner {
                 ready: Vec::new(),
-                trigger: None
+                trigger: None,
             })),
-            signals: HashMap::new()
+            signals: HashMap::new(),
         }
     }
 
@@ -58,17 +58,17 @@ impl Select {
 
     /// Remove a `Signal1 from the `Select` using it's unique id.
     pub fn remove(&mut self, id: usize) -> Option<Signal> {
-        self.signals.remove(&id)
+        self.signals
+            .remove(&id)
             .map(|x| x.disarm())
     }
 
     /// Convert all the signals present in the `Select` into a `Barrier`
     pub fn into_barrier(self) -> Barrier {
-        let vec: Vec<Signal> = 
-            self.signals
-                .into_iter()
-                .map(|(_, p)| p.disarm())
-                .collect();
+        let vec: Vec<Signal> = self.signals
+                                   .into_iter()
+                                   .map(|(_, p)| p.disarm())
+                                   .collect();
 
         Barrier::new(&vec)
     }
@@ -79,7 +79,7 @@ impl Select {
     pub fn try_next(&mut self) -> Option<Signal> {
         let mut guard = self.inner.lock().unwrap();
         if let Some(x) = guard.ready.pop() {
-            return Some(self.signals.remove(&x).map(|x| x.disarm()).unwrap())
+            return Some(self.signals.remove(&x).map(|x| x.disarm()).unwrap());
         }
         None
     }
@@ -124,7 +124,7 @@ impl Signals for Select {
         } else {
             t.pulse();
         }
-        pulse  
+        pulse
     }
 }
 
@@ -133,7 +133,7 @@ impl Signals for Select {
 /// will return an supplied object.
 pub struct SelectMap<T> {
     select: Select,
-    items: HashMap<usize, T>
+    items: HashMap<usize, T>,
 }
 
 impl<T> SelectMap<T> {
@@ -141,7 +141,7 @@ impl<T> SelectMap<T> {
     pub fn new() -> SelectMap<T> {
         SelectMap {
             select: Select::new(),
-            items: HashMap::new()
+            items: HashMap::new(),
         }
     }
 
@@ -162,7 +162,9 @@ impl<T> SelectMap<T> {
     }
 
     /// Get the number of items in the `SelectMap`
-    pub fn len(&self) -> usize { self.items.len() }
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
 }
 
 impl<T> Iterator for SelectMap<T> {
@@ -171,7 +173,7 @@ impl<T> Iterator for SelectMap<T> {
     fn next(&mut self) -> Option<(Signal, T)> {
         self.select.next().map(|x| {
             let id = x.id();
-            (x, self.items.remove(&id).unwrap())      
+            (x, self.items.remove(&id).unwrap())
         })
     }
 }
