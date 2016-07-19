@@ -526,7 +526,7 @@ impl Scheduler for ThreadScheduler {
                 if elapsed > ms {
                     return Err(TimeoutError::Timeout);
                 }
-                thread::park_timeout(elapsed);
+                thread::park_timeout(ms - elapsed);
             }
             signal.remove_from_waitlist(id);
 
