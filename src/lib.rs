@@ -523,7 +523,7 @@ impl Scheduler for ThreadScheduler {
             let id = signal.add_to_waitlist(Waiting::thread());
             if signal.is_pending() {
                 let elapsed = start.elapsed();
-                if elapsed > end {
+                if elapsed > ms {
                     return Err(TimeoutError::Timeout);
                 }
                 thread::park_timeout(elapsed);
