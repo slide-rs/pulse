@@ -3,7 +3,7 @@ Pulse
 [![Build Status](https://travis-ci.org/slide-rs/pulse.svg?branch=master)](https://travis-ci.org/slide-rs/pulse)
 [![Pulse](http://meritbadge.herokuapp.com/pulse)](https://crates.io/crates/pulse)
 
-Imagine you are building a fancy high performance channel for sending data between two threads. At some point, your are going to need to figure out a way to wait on the queue for new data to become available. Spinning on a `try_recv` sucks, and some people like their phones to have more than 30 minutes of battery. We need to implement `recv`.
+Imagine you are building a fancy high performance channel for sending data between two threads. At some point, you are going to need to figure out a way to wait on the queue for new data to become available. Spinning on a `try_recv` sucks, and some people like their phones to have more than 30 minutes of battery. We need to implement `recv`.
 
 There are a few ways to do this, you could use a condition variable + mutex. So you lock your channel, check to see if there is data, then wait on the condition variable if there is nothing to read. If you wanted to do this without locking, you could use a Semaphore. Just do a `acquire()` on the semaphore, and if it ever returns you know there is data waiting to be read. As a bonus, it lets multiple threads wait on the same channel. Which is neat.
 
